@@ -11,7 +11,7 @@ const io = new Server(server, {
   cors: {
     origin: [
       "http://localhost:5173",
-      "https://chatify-myzn.onrender.com"   // 🔥 Render Backend URL
+       "https://chatifys.onrender.com"    // 🔥 Render Backend URL
     ], 
     methods: ["GET", "POST"],
     credentials: true,    // 🔥 REQUIRED
