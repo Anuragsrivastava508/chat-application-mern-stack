@@ -14,9 +14,10 @@ export const useChatStore = create((set, get) => ({
     set({ isUsersLoading: true });
     try {
       const res = await axiosInstance.get("/messages/users");
-      set({ users: res.data });
+      set({ users: res.data || [] });
     } catch (error) {
-      toast.error(error.response.data.message);
+      console.error("getUsers error:", error);
+      toast.error(error?.response?.data?.message || "Failed to load users");
     } finally {
       set({ isUsersLoading: false });
     }
@@ -26,43 +27,83 @@ export const useChatStore = create((set, get) => ({
     set({ isMessagesLoading: true });
     try {
       const res = await axiosInstance.get(`/messages/${userId}`);
-      set({ messages: res.data });
+      set({ messages: res.data || [] });
     } catch (error) {
-      toast.error(error.response.data.message);
+      console.error("getMessages error:", error);
+      toast.error(error?.response?.data?.message || "Failed to load messages");
     } finally {
       set({ isMessagesLoading: false });
     }
   },
+
   sendMessage: async (messageData) => {
     const { selectedUser, messages } = get();
+    if (!selectedUser) {
+      toast.error("No user selected");
+      return;
+    }
     try {
       const res = await axiosInstance.post(`/messages/send/${selectedUser._id}`, messageData);
-      set({ messages: [...messages, res.data] });
+      // append to local messages for sender
+      if (res?.data) set({ messages: [...messages, res.data] });
     } catch (error) {
-      toast.error(error.response.data.message);
+      console.error("sendMessage error:", error);
+      toast.error(error?.response?.data?.message || "Failed to send message");
     }
   },
 
+  // subscribe to 'newMessage' events. This function attaches one handler per selectedUser
+  // if socket is not available yet, it waits for it via useAuthStore.onSocket
   subscribeToMessages: () => {
-    const { selectedUser } = get();
-    if (!selectedUser) return;
+    // helper to attach listener for current selectedUser
+    const attach = (socket) => {
+      // remove any previous handler first to avoid duplicates
+      socket.off("newMessage", handleNewMessage);
+
+      socket.on("newMessage", handleNewMessage);
+    };
+
+    // define handler here so we can remove it later
+    function handleNewMessage(newMessage) {
+      const authUser = useAuthStore.getState().authUser;
+      const { selectedUser } = get();
+
+      if (!authUser || !selectedUser) return;
+
+      // message is for me (receiver) and sent by the selected user
+      const isForMe = newMessage.receiverId === String(authUser._id);
+      const isFromSelected = newMessage.senderId === String(selectedUser._id);
+
+      // OR message was sent by me and receiver is selected (this case normally handled locally after send,
+      // but covering for cases where server also emits back)
+      const isFromMeToSelected =
+        newMessage.senderId === String(authUser._id) &&
+        newMessage.receiverId === String(selectedUser._id);
+
+      if ((isForMe && isFromSelected) || isFromMeToSelected) {
+        set({ messages: [...get().messages, newMessage] });
+      }
+    }
 
     const socket = useAuthStore.getState().socket;
+    if (socket) {
+      attach(socket);
+      return;
+    }
 
-    socket.on("newMessage", (newMessage) => {
-      const isMessageSentFromSelectedUser = newMessage.senderId === selectedUser._id;
-      if (!isMessageSentFromSelectedUser) return;
-
-      set({
-        messages: [...get().messages, newMessage],
-      });
+    // wait for socket to become available
+    useAuthStore.getState().onSocket((skt) => {
+      if (skt) attach(skt);
     });
   },
 
   unsubscribeFromMessages: () => {
     const socket = useAuthStore.getState().socket;
-    socket.off("newMessage");
+    if (socket) socket.off("newMessage");
   },
 
-  setSelectedUser: (selectedUser) => set({ selectedUser }),
+  setSelectedUser: (selectedUser) => {
+    // clear messages and then load messages for new selected user
+    set({ selectedUser, messages: [] });
+  },
 }));
