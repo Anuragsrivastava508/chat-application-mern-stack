@@ -3,11 +3,11 @@ import { axiosInstance } from "../lib/axios";
 import toast from "react-hot-toast";
 import { io } from "socket.io-client";
 
-// use the frontend .env variable VITE_SOCKET_URL
-//const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:5001";
+
+
 const SOCKET_URL =
   import.meta.env.MODE === "production"
-    ? import.meta.env.VITE_SOCKET_URL
+    ? "https://chatify-n6jt.onrender.com"   // 🔥 Backend URL for production
     : "http://localhost:5001";
 
 

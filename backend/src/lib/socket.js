@@ -1,5 +1,3 @@
-
-
 import { Server } from "socket.io";
 import http from "http";
 import express from "express";
@@ -10,11 +8,11 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: [
-      "http://localhost:5173",
-       "https://chatifys.onrender.com"    // 🔥 Render Backend URL
-    ], 
+      "http://localhost:5173",          // local development
+      "https://chatifys.onrender.com"   // 🔥 Your frontend URL (Render)
+    ],
     methods: ["GET", "POST"],
-    credentials: true,    // 🔥 REQUIRED
+    credentials: true,                  // 🔥 REQUIRED so cookie & auth work
   },
 });
 

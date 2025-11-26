@@ -25,7 +25,7 @@ export const getMessages = async (req, res) => {
         { senderId: myId, receiverId: userToChatId },
         { senderId: userToChatId, receiverId: myId },
       ],
-    }).sort({ createdAt: 1 }); // optional: sort oldest -> newest
+    }).sort({ createdAt: 1 }); // sort oldest → newest
 
     res.status(200).json(messages);
   } catch (error) {
@@ -42,7 +42,7 @@ export const sendMessage = async (req, res) => {
 
     let imageUrl;
     if (image) {
-      // Upload base64 image to cloudinary
+      // image base64 upload to Cloudinary
       const uploadResponse = await cloudinary.uploader.upload(image);
       imageUrl = uploadResponse.secure_url;
     }
@@ -55,17 +55,23 @@ export const sendMessage = async (req, res) => {
     });
 
     const saved = await newMessage.save();
-
-    // convert to plain object to avoid mongoose internals via socket
     const plain = saved.toObject ? saved.toObject() : saved;
 
-    // try to emit to receiver if online
+    // 🔥 realtime message delivery
     const receiverSocketId = getReceiverSocketId(receiverId);
-    if (receiverSocketId && io) {
+    const senderSocketId = getReceiverSocketId(senderId);
+
+    // send message to receiver (if online)
+    if (receiverSocketId) {
       io.to(receiverSocketId).emit("newMessage", plain);
     }
 
-    // respond with saved message
+    // send same message back to sender (instant update, no delay)
+    if (senderSocketId) {
+      io.to(senderSocketId).emit("newMessage", plain);
+    }
+
+    // success response
     res.status(201).json(plain);
   } catch (error) {
     console.error("Error in sendMessage controller:", error);
