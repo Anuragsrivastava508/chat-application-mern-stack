@@ -4,11 +4,21 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-  "build":"npm install --prefix backend && npm install --prefix frontend && npm run  build --prefix frontend",
-  "start": "npm run start --prefix backend"
+    "build": "npm install --prefix backend && npm install --prefix frontend && npm run  build --prefix frontend",
+    "start": "npm run start --prefix backend"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs"
+  "type": "commonjs",
+  "dependencies": {
+    "lucide-react": "^0.562.0",
+    "react-hot-toast": "^2.6.0"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.23",
+    "daisyui": "^5.5.14",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.18"
+  }
 }
