@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useChatStore } from "../store/useChatStore";
 
 import Sidebar from "../components/Sidebar";
+import IncomingCallPopup from "../components/IncomingCallPopup";
 import NoChatSelected from "../components/NoChatSelected";
 import ChatContainer from "../components/ChatContainer";
 
@@ -25,40 +26,72 @@ const HomePage = () => {
     }
   }, [selectedUser, isMobile]);
 
-  return (
-    <div className="h-screen bg-base-200 pt-16">
+//   return (
+//     <div className="h-screen bg-base-200 pt-16">
 
-      <div className="flex relative h-full">
+//       <div className="flex relative h-full">
 
-        {/* ⭐ MOBILE FULLSCREEN SIDEBAR ⭐ */}
-        {isMobile ? (
-          sidebarOpen ? (
-            <div className="absolute inset-0 z-40 bg-base-100 border-r border-base-300">
-              <Sidebar onSelectUser={() => setSidebarOpen(false)} />
-            </div>
-          ) : null
+//         {/* ⭐ MOBILE FULLSCREEN SIDEBAR ⭐ */}
+//         {isMobile ? (
+//           sidebarOpen ? (
+//             <div className="absolute inset-0 z-40 bg-base-100 border-r border-base-300">
+//               <Sidebar onSelectUser={() => setSidebarOpen(false)} />
+//             </div>
+//           ) : null
+//         ) : (
+//           /* DESKTOP SIDEBAR */
+//           <Sidebar />
+//         )}
+
+//         {/* CHAT AREA */}
+//         <div className="flex-1 h-full">
+
+//           {!selectedUser ? (
+//             <NoChatSelected />
+//           ) : (
+//             <ChatContainer
+//               // Mobile back → show sidebar
+//               onBack={() => setSidebarOpen(true)}
+//             />
+//           )}
+
+//         </div>
+//       </div>
+//     </div>
+//   );
+// 
+return (
+  <div className="h-screen bg-base-200 pt-16">
+    <div className="flex relative h-full">
+
+      {/* ⭐ MOBILE FULLSCREEN SIDEBAR ⭐ */}
+      {isMobile ? (
+        sidebarOpen ? (
+          <div className="absolute inset-0 z-40 bg-base-100 border-r border-base-300">
+            <Sidebar onSelectUser={() => setSidebarOpen(false)} />
+          </div>
+        ) : null
+      ) : (
+        <Sidebar />
+      )}
+
+      {/* CHAT AREA */}
+      <div className="flex-1 h-full">
+        {!selectedUser ? (
+          <NoChatSelected />
         ) : (
-          /* DESKTOP SIDEBAR */
-          <Sidebar />
+          <ChatContainer onBack={() => setSidebarOpen(true)} />
         )}
-
-        {/* CHAT AREA */}
-        <div className="flex-1 h-full">
-
-          {!selectedUser ? (
-            <NoChatSelected />
-          ) : (
-            <ChatContainer
-              // Mobile back → show sidebar
-              onBack={() => setSidebarOpen(true)}
-            />
-          )}
-
-        </div>
       </div>
+
+      {/* 🔥🔥 INCOMING CALL POPUP 🔥🔥 */}
+      <IncomingCallPopup />
+
     </div>
-  );
+  </div>
+);
 };
+
 
 export default HomePage;
 
