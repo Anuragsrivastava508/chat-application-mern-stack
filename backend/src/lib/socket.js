@@ -183,6 +183,141 @@
 
 
 // export { io, app, server };
+
+// ye latest wala ka up date hao
+// import { Server } from "socket.io";
+// import http from "http";
+// import express from "express";
+
+// const app = express();
+// const server = http.createServer(app);
+
+// const io = new Server(server, {
+//   cors: {
+//     origin: [
+//       "http://localhost:5173",
+//       "https://chatifys.onrender.com",
+//     ],
+//     methods: ["GET", "POST"],
+//     credentials: true,
+//   },
+// });
+
+// // userId → Set(socketId)
+// const userSocketMap = {};
+
+// export function getReceiverSocketIds(userId) {
+//   return userSocketMap[userId];
+// }
+
+// io.on("connection", (socket) => {
+//   console.log("🔥 Connected:", socket.id);
+
+//   const userId = socket.handshake.query.userId;
+
+//   // ---------------- ONLINE USERS ----------------
+//   if (userId) {
+//     if (!userSocketMap[userId]) {
+//       userSocketMap[userId] = new Set();
+//     }
+//     userSocketMap[userId].add(socket.id);
+//     console.log("🟢 ONLINE:", userId);
+//   }
+
+//   io.emit("getOnlineUsers", Object.keys(userSocketMap));
+
+//   socket.on("disconnect", () => {
+//     console.log("❌ Disconnected:", socket.id);
+
+//     if (userId && userSocketMap[userId]) {
+//       userSocketMap[userId].delete(socket.id);
+//       if (userSocketMap[userId].size === 0) {
+//         delete userSocketMap[userId];
+//       }
+//     }
+
+//     io.emit("getOnlineUsers", Object.keys(userSocketMap));
+//   });
+
+//   // ================= CALL SIGNALING =================
+
+//   socket.on("call-user", ({ to, callType }) => {
+//     const sockets = userSocketMap[to];
+//     if (!sockets) return;
+
+//     sockets.forEach((id) => {
+//       io.to(id).emit("incoming-call", {
+//         from: userId,
+//         callType, // "audio" | "video"
+//       });
+//     });
+//   });
+
+//   socket.on("accept-call", ({ to }) => {
+//     const sockets = userSocketMap[to];
+//     if (!sockets) return;
+
+//     sockets.forEach((id) => {
+//       io.to(id).emit("call-accepted", { from: userId });
+//     });
+//   });
+
+//   socket.on("reject-call", ({ to }) => {
+//     const sockets = userSocketMap[to];
+//     if (!sockets) return;
+
+//     sockets.forEach((id) => {
+//       io.to(id).emit("call-rejected", { from: userId });
+//     });
+//   });
+
+//   // ================= WEBRTC SIGNALING =================
+//   // 🔥 THIS IS REQUIRED FOR REAL AUDIO / VIDEO
+
+//   // OFFER
+//   socket.on("webrtc-offer", ({ to, offer }) => {
+//     const sockets = userSocketMap[to];
+//     if (!sockets) return;
+
+//     sockets.forEach((id) => {
+//       io.to(id).emit("webrtc-offer", {
+//         from: userId,
+//         offer,
+//       });
+//     });
+//   });
+
+//   // ANSWER
+//   socket.on("webrtc-answer", ({ to, answer }) => {
+//     const sockets = userSocketMap[to];
+//     if (!sockets) return;
+
+//     sockets.forEach((id) => {
+//       io.to(id).emit("webrtc-answer", {
+//         from: userId,
+//         answer,
+//       });
+//     });
+//   });
+
+//   // ICE CANDIDATE
+//   socket.on("webrtc-ice", ({ to, candidate }) => {
+//     const sockets = userSocketMap[to];
+//     if (!sockets) return;
+
+//     sockets.forEach((id) => {
+//       io.to(id).emit("webrtc-ice", {
+//         from: userId,
+//         candidate,
+//       });
+//     });
+//   });
+// });
+
+// export { io, app, server };
+
+
+
 import { Server } from "socket.io";
 import http from "http";
 import express from "express";
@@ -213,7 +348,8 @@ io.on("connection", (socket) => {
 
   const userId = socket.handshake.query.userId;
 
-  // ---------------- ONLINE USERS ----------------
+  /* ================= ONLINE USERS ================= */
+
   if (userId) {
     if (!userSocketMap[userId]) {
       userSocketMap[userId] = new Set();
@@ -229,15 +365,19 @@ io.on("connection", (socket) => {
 
     if (userId && userSocketMap[userId]) {
       userSocketMap[userId].delete(socket.id);
+
       if (userSocketMap[userId].size === 0) {
         delete userSocketMap[userId];
       }
     }
 
     io.emit("getOnlineUsers", Object.keys(userSocketMap));
+
+    /* 🔴 AUTO END CALL ON DISCONNECT */
+    socket.broadcast.emit("call-ended");
   });
 
-  // ================= CALL SIGNALING =================
+  /* ================= CALL SIGNALING ================= */
 
   socket.on("call-user", ({ to, callType }) => {
     const sockets = userSocketMap[to];
@@ -246,7 +386,7 @@ io.on("connection", (socket) => {
     sockets.forEach((id) => {
       io.to(id).emit("incoming-call", {
         from: userId,
-        callType, // "audio" | "video"
+        callType,
       });
     });
   });
@@ -269,45 +409,43 @@ io.on("connection", (socket) => {
     });
   });
 
-  // ================= WEBRTC SIGNALING =================
-  // 🔥 THIS IS REQUIRED FOR REAL AUDIO / VIDEO
+  /* ================= 🔴 END CALL (NEW) ================= */
 
-  // OFFER
+  socket.on("end-call", ({ to }) => {
+    const sockets = userSocketMap[to];
+    if (!sockets) return;
+
+    sockets.forEach((id) => {
+      io.to(id).emit("call-ended");
+    });
+  });
+
+  /* ================= WEBRTC SIGNALING ================= */
+
   socket.on("webrtc-offer", ({ to, offer }) => {
     const sockets = userSocketMap[to];
     if (!sockets) return;
 
     sockets.forEach((id) => {
-      io.to(id).emit("webrtc-offer", {
-        from: userId,
-        offer,
-      });
+      io.to(id).emit("webrtc-offer", { from: userId, offer });
     });
   });
 
-  // ANSWER
   socket.on("webrtc-answer", ({ to, answer }) => {
     const sockets = userSocketMap[to];
     if (!sockets) return;
 
     sockets.forEach((id) => {
-      io.to(id).emit("webrtc-answer", {
-        from: userId,
-        answer,
-      });
+      io.to(id).emit("webrtc-answer", { from: userId, answer });
     });
   });
 
-  // ICE CANDIDATE
   socket.on("webrtc-ice", ({ to, candidate }) => {
     const sockets = userSocketMap[to];
     if (!sockets) return;
 
     sockets.forEach((id) => {
-      io.to(id).emit("webrtc-ice", {
-        from: userId,
-        candidate,
-      });
+      io.to(id).emit("webrtc-ice", { from: userId, candidate });
     });
   });
 });
