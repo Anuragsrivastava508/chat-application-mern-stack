@@ -336,7 +336,7 @@ const io = new Server(server, {
   },
 });
 
-// userId → Set(socketId)
+/* ================= USER → SOCKET MAP ================= */
 const userSocketMap = {};
 
 export function getReceiverSocketIds(userId) {
@@ -349,17 +349,16 @@ io.on("connection", (socket) => {
   const userId = socket.handshake.query.userId;
 
   /* ================= ONLINE USERS ================= */
-
   if (userId) {
     if (!userSocketMap[userId]) {
       userSocketMap[userId] = new Set();
     }
     userSocketMap[userId].add(socket.id);
-    console.log("🟢 ONLINE:", userId);
   }
 
   io.emit("getOnlineUsers", Object.keys(userSocketMap));
 
+  /* ================= DISCONNECT ================= */
   socket.on("disconnect", () => {
     console.log("❌ Disconnected:", socket.id);
 
@@ -372,13 +371,11 @@ io.on("connection", (socket) => {
     }
 
     io.emit("getOnlineUsers", Object.keys(userSocketMap));
-
-    /* 🔴 AUTO END CALL ON DISCONNECT */
-    socket.broadcast.emit("call-ended");
   });
 
   /* ================= CALL SIGNALING ================= */
 
+  /* 🔔 RING */
   socket.on("call-user", ({ to, callType }) => {
     const sockets = userSocketMap[to];
     if (!sockets) return;
@@ -391,26 +388,7 @@ io.on("connection", (socket) => {
     });
   });
 
-  socket.on("accept-call", ({ to }) => {
-    const sockets = userSocketMap[to];
-    if (!sockets) return;
-
-    sockets.forEach((id) => {
-      io.to(id).emit("call-accepted", { from: userId });
-    });
-  });
-
-  socket.on("reject-call", ({ to }) => {
-    const sockets = userSocketMap[to];
-    if (!sockets) return;
-
-    sockets.forEach((id) => {
-      io.to(id).emit("call-rejected", { from: userId });
-    });
-  });
-
-  /* ================= 🔴 END CALL (NEW) ================= */
-
+  /* 🔴 END CALL (ONLY OTHER SIDE) */
   socket.on("end-call", ({ to }) => {
     const sockets = userSocketMap[to];
     if (!sockets) return;
@@ -427,7 +405,10 @@ io.on("connection", (socket) => {
     if (!sockets) return;
 
     sockets.forEach((id) => {
-      io.to(id).emit("webrtc-offer", { from: userId, offer });
+      io.to(id).emit("webrtc-offer", {
+        from: userId,
+        offer,
+      });
     });
   });
 
@@ -436,7 +417,10 @@ io.on("connection", (socket) => {
     if (!sockets) return;
 
     sockets.forEach((id) => {
-      io.to(id).emit("webrtc-answer", { from: userId, answer });
+      io.to(id).emit("webrtc-answer", {
+        from: userId,
+        answer,
+      });
     });
   });
 
@@ -445,9 +429,13 @@ io.on("connection", (socket) => {
     if (!sockets) return;
 
     sockets.forEach((id) => {
-      io.to(id).emit("webrtc-ice", { from: userId, candidate });
+      io.to(id).emit("webrtc-ice", {
+        from: userId,
+        candidate,
+      });
     });
   });
 });
 
 export { io, app, server };
+
