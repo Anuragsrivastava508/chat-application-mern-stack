@@ -389,15 +389,27 @@ io.on("connection", (socket) => {
   });
 
   /* 🔴 END CALL (ONLY OTHER SIDE) */
-  socket.on("end-call", ({ to }) => {
-    const sockets = userSocketMap[to];
-    if (!sockets) return;
+  // socket.on("end-call", ({ to }) => {
+  //   const sockets = userSocketMap[to];
+  //   if (!sockets) return;
 
-    sockets.forEach((id) => {
-      io.to(id).emit("call-ended");
-    });
+  //   sockets.forEach((id) => {
+  //     io.to(id).emit("call-ended");
+  //   });
+  // });
+socket.on("end-call", ({ to }) => {
+  console.log("END CALL EVENT RECEIVED", to);
+
+  const sockets = userSocketMap[to];
+  if (!sockets) {
+    console.log("User sockets not found");
+    return;
+  }
+
+  sockets.forEach((id) => {
+    io.to(id).emit("call-ended");
   });
-
+});
   /* ================= WEBRTC SIGNALING ================= */
 
   socket.on("webrtc-offer", ({ to, offer }) => {
