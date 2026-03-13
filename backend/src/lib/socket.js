@@ -389,14 +389,6 @@ io.on("connection", (socket) => {
   });
 
   /* 🔴 END CALL (ONLY OTHER SIDE) */
-  // socket.on("end-call", ({ to }) => {
-  //   const sockets = userSocketMap[to];
-  //   if (!sockets) return;
-
-  //   sockets.forEach((id) => {
-  //     io.to(id).emit("call-ended");
-  //   });
-  // });
 socket.on("end-call", ({ to }) => {
   console.log("END CALL EVENT RECEIVED", to);
 

@@ -8,6 +8,8 @@ import SignUpPage from "./pages/SignUpPage";
 import LoginPage from "./pages/LoginPage";
 import SettingsPage from "./pages/SettingsPage";
 import ProfilePage from "./pages/ProfilePage";
+import IncomingCallPopup from "./components/IncomingCallPopup";
+import OutgoingCallPopup from "./components/OutgoingCallPopup";
 
 import { useAuthStore } from "./store/useAuthStore";
 import { useChatStore } from "./store/useChatStore";
@@ -49,8 +51,10 @@ const App = () => {
   return (
     <div data-theme={theme}>
       <Navbar />
-
+     <IncomingCallPopup />
+      <OutgoingCallPopup />
       <Routes>
+
         <Route
           path="/"
           element={authUser ? <HomePage /> : <Navigate to="/login" />}
