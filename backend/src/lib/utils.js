@@ -22,13 +22,13 @@ export const generateToken = (userId, res) => {
   const token = jwt.sign({ userId }, process.env.JWT_SECRET, {
     expiresIn: "7d",
   });
-
-  res.cookie("jwt", token, {
-    httpOnly: true,
-    secure: true,        // 🔥 MUST for Chrome (HTTPS)
-    sameSite: "none",    // 🔥 MUST for cross-origin (VERY IMPORTANT)
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  });
+res.cookie("jwt", token, {
+  httpOnly: true,
+  secure: true,
+  sameSite: "none",
+  path: "/",   // 🔥 ADD THIS (VERY IMPORTANT)
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+});
 
   return token;
 };
