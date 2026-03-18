@@ -30,12 +30,12 @@ const App = () => {
 
   // 🔥 attach socket listeners AFTER login
   useEffect(() => {
-    if (authUser) {
-      subscribeToMessages();
-      subscribeToCalls();
-    }
-  }, [authUser, subscribeToMessages, subscribeToCalls]);
-
+  if (authUser) {
+    subscribeToMessages();
+    subscribeToCalls();
+  }
+}, [authUser]);
+ 
   console.log({ onlineUsers });
   console.log({ authUser });
 

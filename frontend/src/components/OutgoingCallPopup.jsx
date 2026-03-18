@@ -1,16 +1,16 @@
-import React from "react";
 import { Phone, Video, X } from "lucide-react";
 import { useChatStore } from "../store/useChatStore";
 
 const OutgoingCallPopup = () => {
-  const { outgoingCall, cancelOutgoingCall, users } = useChatStore();
+  const { outgoingCall, cancelOutgoingCall, users, isCalling } = useChatStore();
 
-  if (!outgoingCall) return null;
+  // ✅ FIX: hide when call connected or no outgoing
+  if (!outgoingCall || isCalling) return null;
 
   const user = users.find((u) => u._id === outgoingCall.to) || {};
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
       <div className="bg-base-100 shadow-xl rounded-xl w-80 p-4 border border-base-300">
 
         {/* HEADER */}

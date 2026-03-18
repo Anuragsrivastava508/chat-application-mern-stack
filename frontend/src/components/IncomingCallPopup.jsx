@@ -1,19 +1,17 @@
 import { Phone, Video, X } from "lucide-react";
 import { useChatStore } from "../store/useChatStore";
-import { useAuthStore } from "../store/useAuthStore";
 
 const IncomingCallPopup = () => {
-  const { incomingCall, acceptCall, rejectCall } = useChatStore();
-  const { users } = useChatStore();
-  const { authUser } = useAuthStore();
+  const { incomingCall, acceptCall, rejectCall, isCalling, users } = useChatStore();
 
-  if (!incomingCall) return null;
+  // ✅ FIX: hide when call started or no incoming
+  if (!incomingCall || isCalling) return null;
 
   const caller =
     users.find((u) => u._id === incomingCall.from) || {};
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div className="bg-base-100 shadow-xl rounded-xl w-80 p-4 border border-base-300">
 
         {/* HEADER */}
@@ -62,42 +60,3 @@ const IncomingCallPopup = () => {
 };
 
 export default IncomingCallPopup;
-
-
-// import { useChatStore } from "../store/useChatStore";
-
-// const IncomingCallPopup = () => {
-//   const { incomingCall, acceptCall, rejectCall } = useChatStore();
-
-//   if (!incomingCall) return null;
-
-//   return (
-//     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-//       <div className="bg-white p-6 rounded-xl shadow-lg text-center w-80">
-//         <h2 className="text-lg font-bold">📞 Incoming Call</h2>
-
-//         <p className="mt-2 text-gray-600">
-//           {incomingCall.callType.toUpperCase()} call
-//         </p>
-
-//         <div className="flex justify-center gap-4 mt-6">
-//           <button
-//             onClick={acceptCall}
-//             className="px-4 py-2 bg-green-500 text-white rounded-lg"
-//           >
-//             Accept
-//           </button>
-
-//           <button
-//             onClick={rejectCall}
-//             className="px-4 py-2 bg-red-500 text-white rounded-lg"
-//           >
-//             Reject
-//           </button>
-//         </div>
-//       </div>
-//     </div>
-//   );
-// };
-
-// export default IncomingCallPopup;
