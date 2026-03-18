@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { axiosInstance } from "../lib/axios";
 import toast from "react-hot-toast";
 import { io } from "socket.io-client";
+ import { useChatStore } from "./useChatStore";
 
 const SOCKET_URL =
   import.meta.env.MODE === "production"
@@ -104,8 +105,12 @@ export const useAuthStore = create((set, get) => ({
       console.log("🔥 Socket connected:", newSocket.id);
 
       // 🔥 ATTACH CHAT LISTENERS HERE (FINAL FIX)
-      const chatStore =
-        require("./useChatStore").useChatStore.getState();
+      // const chatStore =
+      //   require("./useChatStore").useChatStore.getState();
+     
+       
+
+const chatStore = useChatStore.getState();
 
       chatStore.subscribeToMessages();
       chatStore.subscribeToCalls();
