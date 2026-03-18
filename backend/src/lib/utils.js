@@ -25,9 +25,9 @@ export const generateToken = (userId, res) => {
 
   res.cookie("jwt", token, {
     httpOnly: true,
-    secure: true,        // required for HTTPS on Render
-    sameSite: "none",    // allow cross-domain cookie
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    secure: true,        // 🔥 MUST for Chrome (HTTPS)
+    sameSite: "none",    // 🔥 MUST for cross-origin (VERY IMPORTANT)
+    maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 
   return token;
