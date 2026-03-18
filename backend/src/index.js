@@ -111,10 +111,23 @@ app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
 app.use(cookieParser());
 
-// 🔥 FINAL CORS FIX (IMPORTANT)
+// 🔥 FINAL CORS (DEV + PROD BOTH WORK)
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://chatifys.onrender.com",
+];
+
 app.use(
   cors({
-    origin: "https://chatifys.onrender.com", // ✅ only frontend URL
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true); // allow Postman, etc.
+
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true,
   })
 );
