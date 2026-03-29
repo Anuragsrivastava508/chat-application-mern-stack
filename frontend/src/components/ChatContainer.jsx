@@ -23,7 +23,7 @@ const ChatContainer = ({ onBack }) => {
     isCalling,
     endCall,
 
-    /* 🔥 NEW CONTROLS */
+    /* 🔥 CONTROLS */
     toggleMic,
     toggleCamera,
     isMicOn,
@@ -52,17 +52,28 @@ const ChatContainer = ({ onBack }) => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  /* ================= ATTACH LOCAL ================= */
+  /* ================= LOCAL VIDEO ================= */
   useEffect(() => {
     if (localVideoRef.current && localStream) {
+      console.log("🎥 Local stream set");
       localVideoRef.current.srcObject = localStream;
+
+      localVideoRef.current
+        .play()
+        .catch((e) => console.log("Local play error:", e));
     }
   }, [localStream]);
 
-  /* ================= ATTACH REMOTE ================= */
+  /* ================= REMOTE VIDEO (🔥 MAIN FIX) ================= */
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
+      console.log("🔥 Remote stream set");
+
       remoteVideoRef.current.srcObject = remoteStream;
+
+      remoteVideoRef.current
+        .play()
+        .catch((e) => console.log("Remote play error:", e));
     }
   }, [remoteStream]);
 
@@ -85,15 +96,16 @@ const ChatContainer = ({ onBack }) => {
       {isCalling && (
         <div className="absolute inset-0 bg-black z-50">
 
-          {/* 🔵 REMOTE VIDEO (FULL SCREEN) */}
+          {/* 🔵 REMOTE VIDEO */}
           <video
             ref={remoteVideoRef}
             autoPlay
             playsInline
+            muted   // 🔥 VERY IMPORTANT FOR MOBILE
             className="w-full h-full object-cover"
           />
 
-          {/* 🔵 LOCAL PREVIEW */}
+          {/* 🔵 LOCAL VIDEO */}
           <video
             ref={localVideoRef}
             autoPlay
@@ -173,8 +185,8 @@ const ChatContainer = ({ onBack }) => {
   );
 };
 
-export default ChatContainer;
 
+export default ChatContainer;
 
 
 
