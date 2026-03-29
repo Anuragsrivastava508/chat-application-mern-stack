@@ -17,10 +17,15 @@ const ChatContainer = ({ onBack }) => {
     unsubscribeFromMessages,
     subscribeToCalls,
 
+    /* CALL STATE */
+    incomingCall,
+    outgoingCall,
+    isCalling,
+    acceptCall,
+    endCall,
+
     localStream,
     remoteStream,
-    isCalling,
-    endCall,
 
     toggleMic,
     toggleCamera,
@@ -34,8 +39,9 @@ const ChatContainer = ({ onBack }) => {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
 
-  /* 🔥 CALL SOCKET ONLY ONCE */
+  /* 🔥 CALL SOCKET */
   useEffect(() => {
+    console.log("📡 CALL SUBSCRIBE");
     subscribeToCalls();
   }, []);
 
@@ -43,42 +49,47 @@ const ChatContainer = ({ onBack }) => {
   useEffect(() => {
     if (!selectedUser?._id) return;
 
+    console.log("📩 LOAD MESSAGES");
+
     getMessages(selectedUser._id);
     subscribeToMessages();
 
     return () => unsubscribeFromMessages();
   }, [selectedUser?._id]);
 
-  /* AUTO SCROLL */
+  /* 🔽 AUTO SCROLL */
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  /* LOCAL VIDEO */
+  /* 🎥 LOCAL VIDEO */
   useEffect(() => {
     if (localVideoRef.current && localStream) {
+      console.log("🎥 LOCAL STREAM ATTACH");
+
       const video = localVideoRef.current;
       video.srcObject = localStream;
+      video.muted = true;
 
-      video.play().catch(() => {});
+      video.play().catch((e) => console.log("Local play error", e));
     }
   }, [localStream]);
 
-  /* 🔥 FINAL REMOTE VIDEO FIX */
+  /* 🎥 REMOTE VIDEO */
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
+      console.log("🎥 ATTACH REMOTE VIDEO");
+
       const video = remoteVideoRef.current;
-
-      console.log("🔥 FINAL REMOTE FIX");
-
       video.srcObject = remoteStream;
 
-      setTimeout(() => {
-        video.play().catch((e) => console.log("Play error:", e));
-      }, 300);
+      video.onloadedmetadata = () => {
+        video.play().catch((e) => console.log("Remote play error", e));
+      };
     }
   }, [remoteStream]);
 
+  /* ================= LOADING ================= */
   if (isMessagesLoading) {
     return (
       <div className="flex flex-col h-full">
@@ -93,11 +104,57 @@ const ChatContainer = ({ onBack }) => {
     <div className="flex flex-col h-full overflow-hidden relative">
       <ChatHeader onBack={onBack} />
 
+      {/* 📥 INCOMING CALL */}
+      {incomingCall && !isCalling && (
+        <div className="absolute inset-0 bg-black/80 z-50 flex flex-col items-center justify-center text-white">
+          <h2 className="text-2xl mb-4">📞 Incoming Call</h2>
+
+          <div className="flex gap-4">
+            <button
+              onClick={() => {
+                console.log("✅ ACCEPT CLICK");
+                acceptCall();
+              }}
+              className="bg-green-600 px-6 py-2 rounded-full"
+            >
+              Accept
+            </button>
+
+            <button
+              onClick={() => {
+                console.log("❌ REJECT CLICK");
+                endCall();
+              }}
+              className="bg-red-600 px-6 py-2 rounded-full"
+            >
+              Reject
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 📤 CALLING UI */}
+      {outgoingCall && !isCalling && (
+        <div className="absolute inset-0 bg-black/80 z-50 flex flex-col items-center justify-center text-white">
+          <h2 className="text-2xl mb-4">📞 Calling...</h2>
+
+          <button
+            onClick={() => {
+              console.log("❌ CANCEL CALL");
+              endCall();
+            }}
+            className="bg-red-600 px-6 py-2 rounded-full"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
       {/* 🔥 CALL SCREEN */}
       {isCalling && (
         <div className="absolute inset-0 bg-black z-50">
 
-          {/* ✅ REMOTE VIDEO (NO MUTED) */}
+          {/* REMOTE VIDEO */}
           <video
             ref={remoteVideoRef}
             autoPlay
@@ -105,7 +162,7 @@ const ChatContainer = ({ onBack }) => {
             className="w-full h-full object-cover bg-black"
           />
 
-          {/* ✅ LOCAL VIDEO */}
+          {/* LOCAL VIDEO */}
           <video
             ref={localVideoRef}
             autoPlay
@@ -116,7 +173,6 @@ const ChatContainer = ({ onBack }) => {
 
           {/* CONTROLS */}
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-4">
-
             <button
               onClick={toggleMic}
               className="bg-gray-800 text-white px-4 py-2 rounded-full"
@@ -132,17 +188,19 @@ const ChatContainer = ({ onBack }) => {
             </button>
 
             <button
-              onClick={endCall}
+              onClick={() => {
+                console.log("🔴 END CALL CLICK");
+                endCall();
+              }}
               className="bg-red-600 text-white px-6 py-2 rounded-full"
             >
               End
             </button>
-
           </div>
         </div>
       )}
 
-      {/* MESSAGES */}
+      {/* 💬 MESSAGES */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg) => (
           <div
@@ -159,7 +217,6 @@ const ChatContainer = ({ onBack }) => {
                       ? authUser.profilePic || "/avatar.png"
                       : selectedUser.profilePic || "/avatar.png"
                   }
-                  alt=""
                 />
               </div>
             </div>
