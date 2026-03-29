@@ -9,7 +9,6 @@ const createPeerConnection = () =>
   });
 
 export const useChatStore = create((set, get) => ({
-  /* ================= STATE ================= */
   users: [],
   messages: [],
   selectedUser: null,
@@ -17,7 +16,6 @@ export const useChatStore = create((set, get) => ({
   outgoingCall: null,
   incomingCall: null,
   isCalling: false,
-
   callWith: null,
 
   pc: null,
@@ -49,26 +47,7 @@ export const useChatStore = create((set, get) => ({
     );
   },
 
-  /* ================= SOCKET (MESSAGES) ================= */
-  subscribeToMessages: () => {
-    const socket = useAuthStore.getState().socket;
-    if (!socket) return;
-
-    socket.off("newMessage");
-
-    socket.on("newMessage", (msg) => {
-      set((s) => {
-        if (s.messages.some((m) => m._id === msg._id)) return s;
-        return { messages: [...s.messages, msg] };
-      });
-    });
-  },
-
-  unsubscribeFromMessages: () => {
-    useAuthStore.getState().socket?.off("newMessage");
-  },
-
-  /* ================= SOCKET (CALLS) ================= */
+  /* ================= SOCKET ================= */
   subscribeToCalls: () => {
     const socket = useAuthStore.getState().socket;
     if (!socket) return;
@@ -79,7 +58,7 @@ export const useChatStore = create((set, get) => ({
     socket.off("webrtc-ice");
     socket.off("call-ended");
 
-    /* 🔔 INCOMING CALL */
+    /* 🔔 INCOMING */
     socket.on("incoming-call", ({ from, callType }) => {
       set({
         incomingCall: { from, callType },
@@ -88,7 +67,7 @@ export const useChatStore = create((set, get) => ({
       });
     });
 
-    /* 🔴 CALL ENDED */
+    /* 🔴 END */
     socket.on("call-ended", () => {
       get().endCall(false);
     });
@@ -104,14 +83,10 @@ export const useChatStore = create((set, get) => ({
 
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
-      /* ✅ FIXED REMOTE STREAM */
-      const remoteStream = new MediaStream();
-
+      /* ✅ FIXED (DIRECT STREAM) */
       pc.ontrack = (e) => {
-        e.streams[0].getTracks().forEach((t) => {
-          remoteStream.addTrack(t);
-        });
-        set({ remoteStream });
+        console.log("🔥 REMOTE:", e.streams[0]);
+        set({ remoteStream: e.streams[0] });
       };
 
       pc.onicecandidate = (e) => {
@@ -133,7 +108,6 @@ export const useChatStore = create((set, get) => ({
       set({
         pc,
         localStream: stream,
-        remoteStream,
         isCalling: true,
         incomingCall: null,
       });
@@ -180,7 +154,7 @@ export const useChatStore = create((set, get) => ({
     });
   },
 
-  /* ================= ACCEPT CALL ================= */
+  /* ================= ACCEPT ================= */
   acceptCall: async () => {
     const socket = useAuthStore.getState().socket;
     const { incomingCall } = get();
@@ -196,14 +170,10 @@ export const useChatStore = create((set, get) => ({
 
     stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
-    /* 🔥🔥 MOST IMPORTANT FIX */
-    const remoteStream = new MediaStream();
-
+    /* ✅ FIXED (DIRECT STREAM) */
     pc.ontrack = (e) => {
-      e.streams[0].getTracks().forEach((t) => {
-        remoteStream.addTrack(t);
-      });
-      set({ remoteStream });
+      console.log("🔥 REMOTE:", e.streams[0]);
+      set({ remoteStream: e.streams[0] });
     };
 
     pc.onicecandidate = (e) => {
@@ -226,54 +196,18 @@ export const useChatStore = create((set, get) => ({
     set({
       pc,
       localStream: stream,
-      remoteStream,
       isCalling: true,
       incomingCall: null,
     });
   },
 
-  /* ================= REJECT ================= */
-  rejectCall: () => {
-    const socket = useAuthStore.getState().socket;
-    const { incomingCall } = get();
-
-    if (socket && incomingCall) {
-      socket.emit("end-call", { to: incomingCall.from });
-    }
-
-    set({
-      incomingCall: null,
-      callWith: null,
-      isCalling: false,
-    });
-  },
-
-  /* ================= CANCEL ================= */
-  cancelOutgoingCall: () => {
-    const socket = useAuthStore.getState().socket;
-    const { outgoingCall } = get();
-
-    if (socket && outgoingCall) {
-      socket.emit("end-call", { to: outgoingCall.to });
-    }
-
-    set({
-      outgoingCall: null,
-      callWith: null,
-      isCalling: false,
-    });
-  },
-
-  /* ================= END CALL ================= */
+  /* ================= END ================= */
   endCall: (notify = true) => {
     const socket = useAuthStore.getState().socket;
     const { pc, localStream, callWith } = get();
 
-    if (localStream) {
-      localStream.getTracks().forEach((t) => t.stop());
-    }
-
-    if (pc) pc.close();
+    localStream?.getTracks().forEach((t) => t.stop());
+    pc?.close();
 
     if (notify && socket && callWith) {
       socket.emit("end-call", { to: callWith });
@@ -287,12 +221,9 @@ export const useChatStore = create((set, get) => ({
       outgoingCall: null,
       callWith: null,
       isCalling: false,
-      isMicOn: true,
-      isCameraOn: true,
     });
   },
 
-  /* ================= MIC ================= */
   toggleMic: () => {
     const { localStream, isMicOn } = get();
     localStream?.getAudioTracks().forEach((t) => {
@@ -301,7 +232,6 @@ export const useChatStore = create((set, get) => ({
     set({ isMicOn: !isMicOn });
   },
 
-  /* ================= CAMERA ================= */
   toggleCamera: () => {
     const { localStream, isCameraOn } = get();
     localStream?.getVideoTracks().forEach((t) => {
