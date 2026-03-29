@@ -154,26 +154,55 @@ export const useChatStore = create((set, get) => ({
   },
 
   /* ================= START CALL ================= */
-  startCall: (callType) => {
-    const socket = useAuthStore.getState().socket;
-    const { selectedUser } = get();
+startCall: async (callType) => {
+  const socket = useAuthStore.getState().socket;
+  const { selectedUser } = get();
 
-    if (!socket || !selectedUser) return;
+  if (!socket || !selectedUser) return;
 
-    socket.emit("call-user", {
-      to: selectedUser._id,
-      callType,
-    });
+  const pc = createPeerConnection();
 
-    set({
-      outgoingCall: {
+  /* 🎥 GET USER MEDIA */
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: callType === "video",
+    audio: true,
+  });
+
+  stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+
+  /* 🔥 FIX: RECEIVE REMOTE STREAM */
+  pc.ontrack = (e) => {
+    console.log("🔥 CALLER RECEIVED REMOTE STREAM", e.streams);
+    set({ remoteStream: e.streams[0] });
+  };
+
+  /* 🔁 ICE */
+  pc.onicecandidate = (e) => {
+    if (e.candidate) {
+      socket.emit("webrtc-ice", {
         to: selectedUser._id,
-        callType,
-      },
-      callWith: selectedUser._id,
-    });
-  },
+        candidate: e.candidate,
+      });
+    }
+  };
 
+  /* 🎯 CREATE OFFER */
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+
+  socket.emit("webrtc-offer", {
+    to: selectedUser._id,
+    offer,
+  });
+
+  set({
+    pc,
+    localStream: stream,
+    isCalling: true,
+    callWith: selectedUser._id,
+    outgoingCall: null,
+  });
+},
   /* ================= ACCEPT CALL ================= */
   acceptCall: async () => {
     const socket = useAuthStore.getState().socket;
