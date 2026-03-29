@@ -17,13 +17,11 @@ const ChatContainer = ({ onBack }) => {
     unsubscribeFromMessages,
     subscribeToCalls,
 
-    /* 🔥 CALL STATE */
     localStream,
     remoteStream,
     isCalling,
     endCall,
 
-    /* 🔥 CONTROLS */
     toggleMic,
     toggleCamera,
     isMicOn,
@@ -36,48 +34,51 @@ const ChatContainer = ({ onBack }) => {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
 
-  /* ================= LOAD SOCKETS ================= */
+  /* 🔥 CALL SOCKET ONLY ONCE */
+  useEffect(() => {
+    subscribeToCalls();
+  }, []);
+
+  /* 🔥 MESSAGE SOCKET */
   useEffect(() => {
     if (!selectedUser?._id) return;
 
     getMessages(selectedUser._id);
     subscribeToMessages();
-    subscribeToCalls();
 
     return () => unsubscribeFromMessages();
   }, [selectedUser?._id]);
 
-  /* ================= AUTO SCROLL ================= */
+  /* AUTO SCROLL */
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  /* ================= LOCAL VIDEO ================= */
+  /* LOCAL VIDEO */
   useEffect(() => {
     if (localVideoRef.current && localStream) {
-      console.log("🎥 Local stream set");
-      localVideoRef.current.srcObject = localStream;
+      const video = localVideoRef.current;
+      video.srcObject = localStream;
 
-      localVideoRef.current
-        .play()
-        .catch((e) => console.log("Local play error:", e));
+      video.play().catch(() => {});
     }
   }, [localStream]);
 
-  /* ================= REMOTE VIDEO (🔥 MAIN FIX) ================= */
+  /* 🔥 FINAL REMOTE VIDEO FIX */
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
-      console.log("🔥 Remote stream set");
+      const video = remoteVideoRef.current;
 
-      remoteVideoRef.current.srcObject = remoteStream;
+      console.log("🔥 FINAL REMOTE FIX");
 
-      remoteVideoRef.current
-        .play()
-        .catch((e) => console.log("Remote play error:", e));
+      video.srcObject = remoteStream;
+
+      setTimeout(() => {
+        video.play().catch((e) => console.log("Play error:", e));
+      }, 300);
     }
   }, [remoteStream]);
 
-  /* ================= LOADING ================= */
   if (isMessagesLoading) {
     return (
       <div className="flex flex-col h-full">
@@ -92,20 +93,19 @@ const ChatContainer = ({ onBack }) => {
     <div className="flex flex-col h-full overflow-hidden relative">
       <ChatHeader onBack={onBack} />
 
-      {/* ================= 🔥 CALL SCREEN ================= */}
+      {/* 🔥 CALL SCREEN */}
       {isCalling && (
         <div className="absolute inset-0 bg-black z-50">
 
-          {/* 🔵 REMOTE VIDEO */}
+          {/* ✅ REMOTE VIDEO (NO MUTED) */}
           <video
             ref={remoteVideoRef}
             autoPlay
             playsInline
-            muted   // 🔥 VERY IMPORTANT FOR MOBILE
-            className="w-full h-full object-cover"
+            className="w-full h-full object-cover bg-black"
           />
 
-          {/* 🔵 LOCAL VIDEO */}
+          {/* ✅ LOCAL VIDEO */}
           <video
             ref={localVideoRef}
             autoPlay
@@ -114,10 +114,9 @@ const ChatContainer = ({ onBack }) => {
             className="absolute bottom-24 right-4 w-36 h-28 rounded-lg border-2 border-white object-cover"
           />
 
-          {/* 🔥 CONTROLS */}
+          {/* CONTROLS */}
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-4">
 
-            {/* 🎤 MIC */}
             <button
               onClick={toggleMic}
               className="bg-gray-800 text-white px-4 py-2 rounded-full"
@@ -125,7 +124,6 @@ const ChatContainer = ({ onBack }) => {
               {isMicOn ? "🎤" : "🔇"}
             </button>
 
-            {/* 🎥 CAMERA */}
             <button
               onClick={toggleCamera}
               className="bg-gray-800 text-white px-4 py-2 rounded-full"
@@ -133,7 +131,6 @@ const ChatContainer = ({ onBack }) => {
               {isCameraOn ? "📷" : "🚫"}
             </button>
 
-            {/* 🔴 END CALL */}
             <button
               onClick={endCall}
               className="bg-red-600 text-white px-6 py-2 rounded-full"
@@ -145,7 +142,7 @@ const ChatContainer = ({ onBack }) => {
         </div>
       )}
 
-      {/* ================= MESSAGES ================= */}
+      {/* MESSAGES */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg) => (
           <div
@@ -185,10 +182,7 @@ const ChatContainer = ({ onBack }) => {
   );
 };
 
-
 export default ChatContainer;
-
-
 
 
 
