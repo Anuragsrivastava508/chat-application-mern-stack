@@ -95,7 +95,7 @@ export const useChatStore = create((set, get) => ({
       get().endCall(false);
     });
 
-    /* 🔵 OFFER RECEIVE (MAIN LOGIC) */
+    /* 🔵 OFFER RECEIVE */
     socket.on("webrtc-offer", async ({ from, offer }) => {
       const pc = createPeerConnection();
 
@@ -109,10 +109,8 @@ export const useChatStore = create((set, get) => ({
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
       pc.ontrack = (e) => {
-        console.log("🔥 TRACK RECEIVED", e.streams);
-        if (e.streams && e.streams[0]) {
-          set({ remoteStream: e.streams[0] });
-        }
+        console.log("REMOTE STREAM:", e.streams[0]);
+        set({ remoteStream: e.streams[0] });
       };
 
       pc.onicecandidate = (e) => {
@@ -158,82 +156,72 @@ export const useChatStore = create((set, get) => ({
   },
 
   /* ================= START CALL ================= */
-  // startCall: (callType) => {
-  //   const socket = useAuthStore.getState().socket;
-  //   const { selectedUser } = get();
+  startCall: (callType) => {
+    const socket = useAuthStore.getState().socket;
+    const { selectedUser } = get();
 
-  //   if (!socket || !selectedUser) return;
+    if (!socket || !selectedUser) return;
 
-  //   socket.emit("call-user", {
-  //     to: selectedUser._id,
-  //     callType,
-  //   });
+    socket.emit("call-user", {
+      to: selectedUser._id,
+      callType,
+    });
 
-  //   set({
-  //     outgoingCall: {
-  //       to: selectedUser._id,
-  //       callType,
-  //     },
-  //     callWith: selectedUser._id,
-  //   });
-  // },
-startCall: async (callType) => {
-  const socket = useAuthStore.getState().socket;
-  const { selectedUser } = get();
-
-  if (!socket || !selectedUser) return;
-
-  const pc = createPeerConnection();
-
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: callType === "video",
-    audio: true,
-  });
-
-  stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-
-  /* 🔥 IMPORTANT */
-  pc.ontrack = (e) => {
-    console.log("🔥 CALLER TRACK RECEIVED", e.streams);
-    if (e.streams && e.streams[0]) {
-      set({ remoteStream: e.streams[0] });
-    }
-  };
-
-  pc.onicecandidate = (e) => {
-    if (e.candidate) {
-      socket.emit("webrtc-ice", {
-        to: selectedUser._id,
-        candidate: e.candidate,
-      });
-    }
-  };
-
-  /* 🔥 CREATE OFFER */
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
-
-  socket.emit("webrtc-offer", {
-    to: selectedUser._id,
-    offer,
-  });
-
-  set({
-    pc,
-    localStream: stream,
-    isCalling: true,
-    callWith: selectedUser._id,
-  });
-},
-  /* ================= ACCEPT CALL (🔥 FIXED) */
-  acceptCall: () => {
     set({
+      outgoingCall: {
+        to: selectedUser._id,
+        callType,
+      },
+      callWith: selectedUser._id,
+    });
+  },
+
+  /* ================= ACCEPT CALL ================= */
+  acceptCall: async () => {
+    const socket = useAuthStore.getState().socket;
+    const { incomingCall } = get();
+
+    if (!socket || !incomingCall) return;
+
+    const pc = createPeerConnection();
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: incomingCall.callType === "video",
+      audio: true,
+    });
+
+    stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+
+    pc.ontrack = (e) => {
+      set({ remoteStream: e.streams[0] });
+    };
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        socket.emit("webrtc-ice", {
+          to: incomingCall.from,
+          candidate: e.candidate,
+        });
+      }
+    };
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    socket.emit("webrtc-offer", {
+      to: incomingCall.from,
+      offer,
+    });
+
+    set({
+      pc,
+      localStream: stream,
       isCalling: true,
       incomingCall: null,
     });
   },
 
-  /* ================= CANCEL ================= */
+  /* ================= CANCEL OUTGOING ================= */
   cancelOutgoingCall: () => {
     const socket = useAuthStore.getState().socket;
     const { outgoingCall } = get();
