@@ -9,7 +9,6 @@ const createPeerConnection = () =>
   });
 
 export const useChatStore = create((set, get) => ({
-  /* ================= STATE ================= */
   users: [],
   messages: [],
   selectedUser: null,
@@ -26,48 +25,7 @@ export const useChatStore = create((set, get) => ({
   isMicOn: true,
   isCameraOn: true,
 
-  /* ================= USERS ================= */
-  getUsers: async () => {
-    const res = await axiosInstance.get("/messages/users");
-    set({ users: res.data });
-  },
-
-  /* ================= MESSAGES ================= */
-  getMessages: async (id) => {
-    const res = await axiosInstance.get(`/messages/${id}`);
-    set({ messages: res.data });
-  },
-
-  sendMessage: async (data) => {
-    const { selectedUser } = get();
-    if (!selectedUser) return;
-
-    await axiosInstance.post(
-      `/messages/send/${selectedUser._id}`,
-      data
-    );
-  },
-
-  /* ================= SOCKET (MESSAGES) ================= */
-  subscribeToMessages: () => {
-    const socket = useAuthStore.getState().socket;
-    if (!socket) return;
-
-    socket.off("newMessage");
-
-    socket.on("newMessage", (msg) => {
-      set((s) => {
-        if (s.messages.some((m) => m._id === msg._id)) return s;
-        return { messages: [...s.messages, msg] };
-      });
-    });
-  },
-
-  unsubscribeFromMessages: () => {
-    useAuthStore.getState().socket?.off("newMessage");
-  },
-
-  /* ================= SOCKET (CALLS) ================= */
+  /* ================= SOCKET CALLS ================= */
   subscribeToCalls: () => {
     const socket = useAuthStore.getState().socket;
     if (!socket) return;
@@ -76,36 +34,24 @@ export const useChatStore = create((set, get) => ({
     socket.off("webrtc-offer");
     socket.off("webrtc-answer");
     socket.off("webrtc-ice");
-    socket.off("call-ended");
 
     /* 🔔 INCOMING CALL */
     socket.on("incoming-call", ({ from, callType }) => {
       set({
         incomingCall: { from, callType },
         callWith: from,
-        isCalling: false,
       });
     });
 
-    /* 🔴 CALL ENDED */
-    socket.on("call-ended", () => {
-      get().endCall(false);
-    });
-
-    /* 🔵 OFFER RECEIVE */
+    /* 🔵 RECEIVE OFFER */
     socket.on("webrtc-offer", async ({ from, offer }) => {
       const pc = createPeerConnection();
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
-      });
+      await pc.setRemoteDescription(offer);
 
-      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-
-      /* ✅ FIX (DIRECT STREAM) */
+      /* 🔥 RECEIVE STREAM */
       pc.ontrack = (e) => {
-        console.log("🔥 REMOTE:", e.streams[0]);
+        console.log("REMOTE RECEIVED:", e.streams[0]);
         set({ remoteStream: e.streams[0] });
       };
 
@@ -118,30 +64,15 @@ export const useChatStore = create((set, get) => ({
         }
       };
 
-      await pc.setRemoteDescription(offer);
-
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-
-      socket.emit("webrtc-answer", { to: from, answer });
-
-      set({
-        pc,
-        localStream: stream,
-        isCalling: true,
-        incomingCall: null,
-      });
+      set({ pc });
     });
 
-    /* 🔵 ANSWER RECEIVE */
+    /* 🔵 RECEIVE ANSWER */
     socket.on("webrtc-answer", async ({ answer }) => {
       const { pc } = get();
-      if (pc) await pc.setRemoteDescription(answer);
-
-      set({
-        isCalling: true,
-        outgoingCall: null,
-      });
+      if (pc) {
+        await pc.setRemoteDescription(answer);
+      }
     });
 
     /* 🔵 ICE */
@@ -153,82 +84,31 @@ export const useChatStore = create((set, get) => ({
     });
   },
 
-  /* ================= START CALL ================= */
-startCall: async (callType) => {
-  const socket = useAuthStore.getState().socket;
-  const { selectedUser } = get();
-
-  if (!socket || !selectedUser) return;
-
-  const pc = createPeerConnection();
-
-  /* 🎥 GET USER MEDIA */
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: callType === "video",
-    audio: true,
-  });
-
-  stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-
-  /* 🔥 FIX: RECEIVE REMOTE STREAM */
-  pc.ontrack = (e) => {
-    console.log("🔥 CALLER RECEIVED REMOTE STREAM", e.streams);
-    set({ remoteStream: e.streams[0] });
-  };
-
-  /* 🔁 ICE */
-  pc.onicecandidate = (e) => {
-    if (e.candidate) {
-      socket.emit("webrtc-ice", {
-        to: selectedUser._id,
-        candidate: e.candidate,
-      });
-    }
-  };
-
-  /* 🎯 CREATE OFFER */
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
-
-  socket.emit("webrtc-offer", {
-    to: selectedUser._id,
-    offer,
-  });
-
-  set({
-    pc,
-    localStream: stream,
-    isCalling: true,
-    callWith: selectedUser._id,
-    outgoingCall: null,
-  });
-},
-  /* ================= ACCEPT CALL ================= */
-  acceptCall: async () => {
+  /* ================= START CALL (CALLER) ================= */
+  startCall: async (callType) => {
     const socket = useAuthStore.getState().socket;
-    const { incomingCall } = get();
+    const { selectedUser } = get();
 
-    if (!socket || !incomingCall) return;
+    if (!socket || !selectedUser) return;
 
     const pc = createPeerConnection();
 
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: incomingCall.callType === "video",
+      video: callType === "video",
       audio: true,
     });
 
     stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
-    /* ✅ FIX (DIRECT STREAM) */
     pc.ontrack = (e) => {
-      console.log("🔥 REMOTE:", e.streams[0]);
+      console.log("CALLER GOT STREAM:", e.streams[0]);
       set({ remoteStream: e.streams[0] });
     };
 
     pc.onicecandidate = (e) => {
       if (e.candidate) {
         socket.emit("webrtc-ice", {
-          to: incomingCall.from,
+          to: selectedUser._id,
           candidate: e.candidate,
         });
       }
@@ -238,7 +118,7 @@ startCall: async (callType) => {
     await pc.setLocalDescription(offer);
 
     socket.emit("webrtc-offer", {
-      to: incomingCall.from,
+      to: selectedUser._id,
       offer,
     });
 
@@ -246,19 +126,53 @@ startCall: async (callType) => {
       pc,
       localStream: stream,
       isCalling: true,
+      callWith: selectedUser._id,
+    });
+  },
+
+  /* ================= ACCEPT CALL (RECEIVER) ================= */
+  acceptCall: async () => {
+    const socket = useAuthStore.getState().socket;
+    const { incomingCall, pc } = get();
+
+    if (!socket || !incomingCall || !pc) return;
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: incomingCall.callType === "video",
+      audio: true,
+    });
+
+    stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+
+    pc.ontrack = (e) => {
+      console.log("RECEIVER GOT STREAM:", e.streams[0]);
+      set({ remoteStream: e.streams[0] });
+    };
+
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+
+    socket.emit("webrtc-answer", {
+      to: incomingCall.from,
+      answer,
+    });
+
+    set({
+      localStream: stream,
+      isCalling: true,
       incomingCall: null,
     });
   },
 
   /* ================= END CALL ================= */
-  endCall: (notify = true) => {
+  endCall: () => {
     const socket = useAuthStore.getState().socket;
     const { pc, localStream, callWith } = get();
 
     localStream?.getTracks().forEach((t) => t.stop());
     pc?.close();
 
-    if (notify && socket && callWith) {
+    if (socket && callWith) {
       socket.emit("end-call", { to: callWith });
     }
 
@@ -270,12 +184,9 @@ startCall: async (callType) => {
       outgoingCall: null,
       callWith: null,
       isCalling: false,
-      isMicOn: true,
-      isCameraOn: true,
     });
   },
 
-  /* ================= CONTROLS ================= */
   toggleMic: () => {
     const { localStream, isMicOn } = get();
     localStream?.getAudioTracks().forEach((t) => {
