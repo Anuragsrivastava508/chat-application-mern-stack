@@ -2,18 +2,19 @@ import { create } from "zustand";
 import { axiosInstance } from "../lib/axios";
 import { useAuthStore } from "./useAuthStore";
 
-/* ================= WEBRTC ================= */
-const createPeerConnection = () =>
-  new RTCPeerConnection({
-    iceServers: [
-      { urls: "stun:stun.l.google.com:19302" },
-      {
-        urls: "turn:relay.metered.ca:80",
-        username: "openai",
-        credential: "openai",
-      },
-    ],
+/* ================= GLOBAL PC ================= */
+let pc = null;
+
+/* ================= CREATE PC ================= */
+const createPeerConnection = () => {
+  if (pc) return pc;
+
+  pc = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   });
+
+  return pc;
+};
 
 export const useChatStore = create((set, get) => ({
   /* ================= STATE ================= */
@@ -21,99 +22,130 @@ export const useChatStore = create((set, get) => ({
   messages: [],
   selectedUser: null,
 
-  outgoingCall: null,
   incomingCall: null,
+  outgoingCall: null,
   isCalling: false,
   callWith: null,
 
-  pc: null,
   localStream: null,
   remoteStream: null,
+
+  isSubscribed: false,
+  isMessageSubscribed: false,
 
   isMicOn: true,
   isCameraOn: true,
 
   /* ================= USERS ================= */
   getUsers: async () => {
-    const res = await axiosInstance.get("/messages/users");
-    set({ users: res.data });
+    try {
+      const res = await axiosInstance.get("/messages/users");
+      set({ users: res.data });
+    } catch (err) {
+      console.log("❌ getUsers error", err);
+    }
+  },
+
+  /* ================= SELECT USER ================= */
+  setSelectedUser: (user) => {
+    set({
+      selectedUser: user,
+      messages: [],
+    });
   },
 
   /* ================= MESSAGES ================= */
   getMessages: async (id) => {
-    const res = await axiosInstance.get(`/messages/${id}`);
-    set({ messages: res.data });
+    try {
+      const res = await axiosInstance.get(`/messages/${id}`);
+      set({ messages: res.data });
+    } catch (err) {
+      console.log("❌ getMessages error", err);
+    }
   },
 
   sendMessage: async (data) => {
     const { selectedUser } = get();
-    if (!selectedUser) return;
 
-    await axiosInstance.post(`/messages/send/${selectedUser._id}`, data);
+    const res = await axiosInstance.post(
+      `/messages/send/${selectedUser._id}`,
+      data
+    );
+
+    set((state) => ({
+      messages: [...state.messages, res.data],
+    }));
   },
 
   /* ================= SOCKET (MESSAGES) ================= */
   subscribeToMessages: () => {
     const socket = useAuthStore.getState().socket;
+    const { isMessageSubscribed } = get();
+
     if (!socket) return;
+    if (isMessageSubscribed) return;
 
-    socket.off("newMessage");
+    set({ isMessageSubscribed: true });
 
-    socket.on("newMessage", (msg) => {
-      set((s) => {
-        if (s.messages.some((m) => m._id === msg._id)) return s;
-        return { messages: [...s.messages, msg] };
-      });
+    socket.off("new-message");
+
+    socket.on("new-message", (message) => {
+      set((state) => ({
+        messages: [...state.messages, message],
+      }));
     });
   },
 
   unsubscribeFromMessages: () => {
-    useAuthStore.getState().socket?.off("newMessage");
+    const socket = useAuthStore.getState().socket;
+    if (!socket) return;
+
+    socket.off("new-message");
+    set({ isMessageSubscribed: false });
   },
 
   /* ================= SOCKET (CALLS) ================= */
   subscribeToCalls: () => {
     const socket = useAuthStore.getState().socket;
-    if (!socket) return;
+    const { isSubscribed } = get();
+
+    if (!socket || isSubscribed) return;
+
+    set({ isSubscribed: true });
 
     socket.off("incoming-call");
     socket.off("webrtc-offer");
     socket.off("webrtc-answer");
     socket.off("webrtc-ice");
-    socket.off("call-ended");
 
-    /* 🔔 INCOMING CALL */
-    socket.on("incoming-call", ({ from, callType }) => {
+    /* 📞 INCOMING */
+    socket.on("incoming-call", ({ from }) => {
       set({
-        incomingCall: { from, callType },
+        incomingCall: { from },
         callWith: from,
       });
     });
 
-    /* 🔴 CALL ENDED */
-    socket.on("call-ended", () => {
-      get().endCall(false);
-    });
-
-    /* 🔵 OFFER RECEIVE */
+    /* ================= OFFER ================= */
     socket.on("webrtc-offer", async ({ from, offer }) => {
-      const pc = createPeerConnection();
+      if (pc) return;
 
-      await pc.setRemoteDescription(offer);
+      const peer = createPeerConnection();
+
+      peer.ontrack = (e) => {
+        set({ remoteStream: e.streams[0] });
+      };
+
+      await peer.setRemoteDescription(offer);
 
       const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
         audio: true,
       });
 
-      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+      stream.getTracks().forEach((t) => peer.addTrack(t, stream));
 
-      pc.ontrack = (e) => {
-        console.log("REMOTE STREAM:", e.streams[0]);
-        set({ remoteStream: e.streams[0] });
-      };
-
-      pc.onicecandidate = (e) => {
+      peer.onicecandidate = (e) => {
         if (e.candidate) {
           socket.emit("webrtc-ice", {
             to: from,
@@ -122,33 +154,34 @@ export const useChatStore = create((set, get) => ({
         }
       };
 
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
+      const answer = await peer.createAnswer();
+      await peer.setLocalDescription(answer);
 
       socket.emit("webrtc-answer", { to: from, answer });
 
       set({
-        pc,
         localStream: stream,
         isCalling: true,
         incomingCall: null,
       });
     });
 
-    /* 🔵 ANSWER RECEIVE */
+    /* ================= ANSWER ================= */
     socket.on("webrtc-answer", async ({ answer }) => {
-      const { pc } = get();
-      if (pc) await pc.setRemoteDescription(answer);
+      if (!pc) return;
+
+      if (pc.signalingState !== "have-local-offer") return;
+
+      await pc.setRemoteDescription(answer);
 
       set({
         isCalling: true,
-        outgoingCall: null,
+        outgoingCall: null, // 🔥 calling remove
       });
     });
 
-    /* 🔵 ICE */
+    /* ================= ICE ================= */
     socket.on("webrtc-ice", async ({ candidate }) => {
-      const { pc } = get();
       if (pc && candidate) {
         await pc.addIceCandidate(candidate);
       }
@@ -156,150 +189,102 @@ export const useChatStore = create((set, get) => ({
   },
 
   /* ================= START CALL ================= */
-  startCall: (callType) => {
+  startCall: async () => {
     const socket = useAuthStore.getState().socket;
     const { selectedUser } = get();
 
     if (!socket || !selectedUser) return;
 
-    socket.emit("call-user", {
-      to: selectedUser._id,
-      callType,
-    });
-
-    set({
-      outgoingCall: {
-        to: selectedUser._id,
-        callType,
-      },
-      callWith: selectedUser._id,
-    });
-  },
-
-  /* ================= ACCEPT CALL ================= */
-  acceptCall: async () => {
-    const socket = useAuthStore.getState().socket;
-    const { incomingCall } = get();
-
-    if (!socket || !incomingCall) return;
-
-    const pc = createPeerConnection();
+    const peer = createPeerConnection();
 
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: incomingCall.callType === "video",
+      video: true,
       audio: true,
     });
 
-    stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+    stream.getTracks().forEach((t) => peer.addTrack(t, stream));
 
-    pc.ontrack = (e) => {
+    peer.ontrack = (e) => {
       set({ remoteStream: e.streams[0] });
     };
 
-    pc.onicecandidate = (e) => {
+    peer.onicecandidate = (e) => {
       if (e.candidate) {
         socket.emit("webrtc-ice", {
-          to: incomingCall.from,
+          to: selectedUser._id,
           candidate: e.candidate,
         });
       }
     };
 
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
+    const offer = await peer.createOffer();
+    await peer.setLocalDescription(offer);
+
+    socket.emit("call-user", { to: selectedUser._id });
 
     socket.emit("webrtc-offer", {
-      to: incomingCall.from,
+      to: selectedUser._id,
       offer,
     });
 
+    // 🔥 CALLING UI
     set({
-      pc,
       localStream: stream,
+      outgoingCall: { to: selectedUser._id },
+      isCalling: false,
+      callWith: selectedUser._id,
+    });
+  },
+
+  /* ================= ACCEPT ================= */
+  acceptCall: () => {
+    set({
       isCalling: true,
       incomingCall: null,
     });
   },
 
-  /* ================= CANCEL OUTGOING ================= */
-  cancelOutgoingCall: () => {
-    const socket = useAuthStore.getState().socket;
-    const { outgoingCall } = get();
-
-    if (socket && outgoingCall) {
-      socket.emit("end-call", { to: outgoingCall.to });
+  /* ================= END ================= */
+  endCall: () => {
+    if (pc) {
+      pc.close();
+      pc = null;
     }
 
-    set({
-      outgoingCall: null,
-      callWith: null,
-      isCalling: false,
-    });
-  },
-
-  /* ================= REJECT ================= */
-  rejectCall: () => {
-    const socket = useAuthStore.getState().socket;
-    const { incomingCall } = get();
-
-    if (socket && incomingCall) {
-      socket.emit("end-call", { to: incomingCall.from });
-    }
+    get().localStream?.getTracks().forEach((t) => t.stop());
 
     set({
-      incomingCall: null,
-      callWith: null,
-      isCalling: false,
-    });
-  },
-
-  /* ================= END CALL ================= */
-  endCall: (notify = true) => {
-    const socket = useAuthStore.getState().socket;
-    const { pc, localStream, callWith } = get();
-
-    localStream?.getTracks().forEach((t) => t.stop());
-    pc?.close();
-
-    if (notify && socket && callWith) {
-      socket.emit("end-call", { to: callWith });
-    }
-
-    set({
-      pc: null,
       localStream: null,
       remoteStream: null,
+      isCalling: false,
       incomingCall: null,
       outgoingCall: null,
       callWith: null,
-      isCalling: false,
-      isMicOn: true,
-      isCameraOn: true,
+      isSubscribed: false,
+      isMessageSubscribed: false,
     });
   },
 
   /* ================= CONTROLS ================= */
   toggleMic: () => {
     const { localStream, isMicOn } = get();
+
     localStream?.getAudioTracks().forEach((t) => {
       t.enabled = !isMicOn;
     });
+
     set({ isMicOn: !isMicOn });
   },
 
   toggleCamera: () => {
     const { localStream, isCameraOn } = get();
+
     localStream?.getVideoTracks().forEach((t) => {
       t.enabled = !isCameraOn;
     });
+
     set({ isCameraOn: !isCameraOn });
   },
-
-  setSelectedUser: (u) =>
-    set({
-      selectedUser: u,
-      messages: [],
-    }),
 }));
 
 // import { create } from "zustand";
