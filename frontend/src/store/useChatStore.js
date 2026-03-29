@@ -5,7 +5,14 @@ import { useAuthStore } from "./useAuthStore";
 /* ================= WEBRTC ================= */
 const createPeerConnection = () =>
   new RTCPeerConnection({
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      {
+        urls: "turn:relay.metered.ca:80",
+        username: "openai",
+        credential: "openai",
+      },
+    ],
   });
 
 export const useChatStore = create((set, get) => ({
@@ -102,7 +109,7 @@ export const useChatStore = create((set, get) => ({
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
       pc.ontrack = (e) => {
-        console.log("REMOTE:", e.streams[0]);
+        console.log("REMOTE STREAM:", e.streams[0]);
         set({ remoteStream: e.streams[0] });
       };
 
@@ -214,6 +221,38 @@ export const useChatStore = create((set, get) => ({
     });
   },
 
+  /* ================= CANCEL OUTGOING ================= */
+  cancelOutgoingCall: () => {
+    const socket = useAuthStore.getState().socket;
+    const { outgoingCall } = get();
+
+    if (socket && outgoingCall) {
+      socket.emit("end-call", { to: outgoingCall.to });
+    }
+
+    set({
+      outgoingCall: null,
+      callWith: null,
+      isCalling: false,
+    });
+  },
+
+  /* ================= REJECT ================= */
+  rejectCall: () => {
+    const socket = useAuthStore.getState().socket;
+    const { incomingCall } = get();
+
+    if (socket && incomingCall) {
+      socket.emit("end-call", { to: incomingCall.from });
+    }
+
+    set({
+      incomingCall: null,
+      callWith: null,
+      isCalling: false,
+    });
+  },
+
   /* ================= END CALL ================= */
   endCall: (notify = true) => {
     const socket = useAuthStore.getState().socket;
@@ -239,6 +278,7 @@ export const useChatStore = create((set, get) => ({
     });
   },
 
+  /* ================= CONTROLS ================= */
   toggleMic: () => {
     const { localStream, isMicOn } = get();
     localStream?.getAudioTracks().forEach((t) => {
@@ -261,7 +301,6 @@ export const useChatStore = create((set, get) => ({
       messages: [],
     }),
 }));
-
 
 // import { create } from "zustand";
 // import { axiosInstance } from "../lib/axios";
