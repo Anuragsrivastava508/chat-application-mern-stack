@@ -36,6 +36,8 @@ const ChatContainer = ({ onBack }) => {
   const messageEndRef = useRef(null);
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
+  /** Remote audio plays here; video stays muted for mobile autoplay policies. */
+  const remoteAudioRef = useRef(null);
 
   /* Call listeners are registered once in App when the user logs in */
 
@@ -68,28 +70,42 @@ const ChatContainer = ({ onBack }) => {
     video.play().catch(() => {});
   }, [localStream]);
 
-  /* 🎥 REMOTE — mobile: muted→play→unmute fixes black screen (autoplay policy); rotation from track settings */
+  /* 🎥 REMOTE — split video (muted) + audio: fixes black screen on many phones; rotation from video track */
   useEffect(() => {
     const video = remoteVideoRef.current;
-    if (!video) return;
+    const audio = remoteAudioRef.current;
+    if (!video || !audio) return;
 
     if (!remoteStream) {
       video.srcObject = null;
+      audio.srcObject = null;
       video.style.transform = "";
       video.style.objectFit = "";
       return;
     }
 
-    const vtrack = remoteStream.getVideoTracks()[0];
+    const vtracks = remoteStream.getVideoTracks();
+    const atracks = remoteStream.getAudioTracks();
+
+    const vStream = new MediaStream(vtracks);
+    const aStream = new MediaStream(atracks);
+
+    const vtrack = vtracks[0];
     const settings = vtrack?.getSettings?.() ?? {};
     const rotation =
       typeof settings.rotation === "number" ? settings.rotation : 0;
 
-    video.srcObject = remoteStream;
+    video.srcObject = vStream;
+    video.muted = true;
+    video.defaultMuted = true;
     video.setAttribute("playsinline", "");
     video.setAttribute("webkit-playsinline", "true");
     video.playsInline = true;
     video.controls = false;
+
+    audio.srcObject = aStream;
+    audio.setAttribute("playsinline", "");
+    audio.playsInline = true;
 
     if (rotation !== 0) {
       video.style.transform = `rotate(${rotation}deg)`;
@@ -99,29 +115,36 @@ const ChatContainer = ({ onBack }) => {
       video.style.objectFit = "cover";
     }
 
-    const startPlayback = async () => {
-      try {
-        video.muted = true;
-        await video.play();
-        video.muted = false;
-      } catch {
-        try {
-          video.muted = false;
-          await video.play();
-        } catch {
-          video.muted = true;
-          await video.play().catch(() => {});
-        }
-      }
+    const playAll = () => {
+      void video.play().catch(() => {});
+      void audio.play().catch(() => {});
     };
 
-    video.onloadedmetadata = startPlayback;
-    video.oncanplay = startPlayback;
-    void startPlayback();
+    const onUnmute = () => playAll();
+    vtracks.forEach((t) => {
+      t.addEventListener("unmute", onUnmute);
+      t.addEventListener("ended", playAll);
+    });
+    atracks.forEach((t) => {
+      t.addEventListener("unmute", onUnmute);
+    });
+
+    video.onloadedmetadata = playAll;
+    video.oncanplay = playAll;
+    audio.oncanplay = playAll;
+    void playAll();
 
     return () => {
+      vtracks.forEach((t) => {
+        t.removeEventListener("unmute", onUnmute);
+        t.removeEventListener("ended", playAll);
+      });
+      atracks.forEach((t) => {
+        t.removeEventListener("unmute", onUnmute);
+      });
       video.onloadedmetadata = null;
       video.oncanplay = null;
+      audio.oncanplay = null;
       video.style.transform = "";
       video.style.objectFit = "";
     };
@@ -149,9 +172,11 @@ const ChatContainer = ({ onBack }) => {
             <video
               ref={remoteVideoRef}
               autoPlay
+              muted
               playsInline
               className="h-full w-full bg-neutral-900 sm:absolute sm:inset-0"
             />
+            <audio ref={remoteAudioRef} playsInline className="hidden" />
 
             <video
               ref={localVideoRef}

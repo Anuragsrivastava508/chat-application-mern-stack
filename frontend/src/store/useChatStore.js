@@ -5,7 +5,20 @@ import { useAuthStore } from "./useAuthStore";
 /* ================= WEBRTC ================= */
 const createPeerConnection = () =>
   new RTCPeerConnection({
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      {
+        urls: [
+          "turn:openrelay.metered.ca:80",
+          "turn:openrelay.metered.ca:443?transport=tcp",
+          "turn:openrelay.metered.ca:443?transport=tls",
+        ],
+        username: "openrelayproject",
+        credential: "openrelayproject",
+      },
+    ],
+    iceCandidatePoolSize: 10,
   });
 
 /** New MediaStream each time so Zustand + React see a new reference when tracks arrive. */
