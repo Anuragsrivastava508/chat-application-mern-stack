@@ -9,10 +9,10 @@ const createPeerConnection = () =>
       { urls: "stun:stun.l.google.com:19302" },
       { urls: "stun:stun1.l.google.com:19302" },
       {
+        /* Only udp/tcp are valid ?transport= values in Chromium */
         urls: [
           "turn:openrelay.metered.ca:80",
           "turn:openrelay.metered.ca:443?transport=tcp",
-          "turn:openrelay.metered.ca:443?transport=tls",
         ],
         username: "openrelayproject",
         credential: "openrelayproject",
@@ -49,6 +49,22 @@ function getLocalVideoConstraints() {
       ? { width: { ideal: 720 }, height: { ideal: 1280 } }
       : { width: { ideal: 1280 }, height: { ideal: 720 } }),
   };
+}
+
+/** Retry with simple constraints if ideal width/height fails on some devices. */
+async function getCallMediaStream(callType) {
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      video: callType === "video" ? getLocalVideoConstraints() : false,
+      audio: true,
+    });
+  } catch (firstErr) {
+    console.warn("getUserMedia (ideal) failed, retrying basic:", firstErr);
+    return await navigator.mediaDevices.getUserMedia({
+      video: callType === "video",
+      audio: true,
+    });
+  }
 }
 
 export const useChatStore = create((set, get) => ({
@@ -248,12 +264,10 @@ export const useChatStore = create((set, get) => ({
 
     let stream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: callType === "video" ? getLocalVideoConstraints() : false,
-        audio: true,
-      });
+      stream = await getCallMediaStream(callType);
     } catch (e) {
       console.error(e);
+      pc.close();
       return;
     }
 
@@ -330,12 +344,10 @@ export const useChatStore = create((set, get) => ({
 
     let stream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: callType === "video" ? getLocalVideoConstraints() : false,
-        audio: true,
-      });
+      stream = await getCallMediaStream(callType);
     } catch (e) {
       console.error(e);
+      pc.close();
       get().rejectCall();
       return;
     }
