@@ -68,22 +68,62 @@ const ChatContainer = ({ onBack }) => {
     video.play().catch(() => {});
   }, [localStream]);
 
-  /* 🎥 REMOTE VIDEO — must re-bind when stream ref or tracks change */
+  /* 🎥 REMOTE — mobile: muted→play→unmute fixes black screen (autoplay policy); rotation from track settings */
   useEffect(() => {
     const video = remoteVideoRef.current;
     if (!video) return;
+
     if (!remoteStream) {
       video.srcObject = null;
+      video.style.transform = "";
+      video.style.objectFit = "";
       return;
     }
+
+    const vtrack = remoteStream.getVideoTracks()[0];
+    const settings = vtrack?.getSettings?.() ?? {};
+    const rotation =
+      typeof settings.rotation === "number" ? settings.rotation : 0;
+
     video.srcObject = remoteStream;
-    video.muted = false;
+    video.setAttribute("playsinline", "");
+    video.setAttribute("webkit-playsinline", "true");
     video.playsInline = true;
-    const play = () => video.play().catch(() => {});
-    video.onloadedmetadata = play;
-    play();
+    video.controls = false;
+
+    if (rotation !== 0) {
+      video.style.transform = `rotate(${rotation}deg)`;
+      video.style.objectFit = "contain";
+    } else {
+      video.style.transform = "";
+      video.style.objectFit = "cover";
+    }
+
+    const startPlayback = async () => {
+      try {
+        video.muted = true;
+        await video.play();
+        video.muted = false;
+      } catch {
+        try {
+          video.muted = false;
+          await video.play();
+        } catch {
+          video.muted = true;
+          await video.play().catch(() => {});
+        }
+      }
+    };
+
+    video.onloadedmetadata = startPlayback;
+    video.oncanplay = startPlayback;
+    void startPlayback();
+
     return () => {
       video.onloadedmetadata = null;
+      video.oncanplay = null;
+      video.style.transform = "";
+      video.style.objectFit = "";
     };
   }, [remoteStream, remoteStream?.getTracks().length]);
 
@@ -105,12 +145,12 @@ const ChatContainer = ({ onBack }) => {
       {/* Active / dialing: show media when local or remote stream exists */}
       {(isCalling || outgoingCall) && (
         <div className="absolute inset-0 z-50 flex flex-col bg-black">
-          <div className="relative flex-1 min-h-0">
+          <div className="relative flex flex-1 min-h-0 items-center justify-center overflow-hidden bg-neutral-900">
             <video
               ref={remoteVideoRef}
               autoPlay
               playsInline
-              className="absolute inset-0 w-full h-full object-cover bg-neutral-900"
+              className="h-full w-full bg-neutral-900 sm:absolute sm:inset-0"
             />
 
             <video

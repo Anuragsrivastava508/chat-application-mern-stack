@@ -25,6 +25,19 @@ function normalizeIceCandidate(candidate) {
     : new RTCIceCandidate(candidate);
 }
 
+/** Prefer portrait capture on phones so remote desktop does not show a sideways frame. */
+function getLocalVideoConstraints() {
+  const portrait =
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(orientation: portrait)")?.matches;
+  return {
+    facingMode: "user",
+    ...(portrait
+      ? { width: { ideal: 720 }, height: { ideal: 1280 } }
+      : { width: { ideal: 1280 }, height: { ideal: 720 } }),
+  };
+}
+
 export const useChatStore = create((set, get) => ({
   /* ================= STATE ================= */
   users: [],
@@ -223,7 +236,7 @@ export const useChatStore = create((set, get) => ({
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        video: callType === "video",
+        video: callType === "video" ? getLocalVideoConstraints() : false,
         audio: true,
       });
     } catch (e) {
@@ -305,7 +318,7 @@ export const useChatStore = create((set, get) => ({
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        video: callType === "video",
+        video: callType === "video" ? getLocalVideoConstraints() : false,
         audio: true,
       });
     } catch (e) {
