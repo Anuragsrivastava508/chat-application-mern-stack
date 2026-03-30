@@ -1,5 +1,3 @@
-
-
 import { create } from "zustand";
 import { axiosInstance } from "../lib/axios";
 import { useAuthStore } from "./useAuthStore";
@@ -15,12 +13,13 @@ export const useChatStore = create((set, get) => ({
   users: [],
   messages: [],
   selectedUser: null,
+  isMessagesLoading: false,
 
   outgoingCall: null,
   incomingCall: null,
   isCalling: false,
 
-  callWith: null, // 🔥 FIX
+  callWith: null,
 
   pc: null,
   localStream: null,
@@ -37,8 +36,15 @@ export const useChatStore = create((set, get) => ({
 
   /* ================= MESSAGES ================= */
   getMessages: async (id) => {
-    const res = await axiosInstance.get(`/messages/${id}`);
-    set({ messages: res.data });
+    set({ isMessagesLoading: true });
+    try {
+      const res = await axiosInstance.get(`/messages/${id}`);
+      set({ messages: res.data });
+    } catch (e) {
+      console.error(e);
+    } finally {
+      set({ isMessagesLoading: false });
+    }
   },
 
   sendMessage: async (data) => {
@@ -49,8 +55,6 @@ export const useChatStore = create((set, get) => ({
       `/messages/send/${selectedUser._id}`,
       data
     );
-
-    // ❌ DON'T add locally
   },
 
   /* ================= SOCKET (MESSAGES) ================= */
@@ -61,11 +65,11 @@ export const useChatStore = create((set, get) => ({
     socket.off("newMessage");
 
     socket.on("newMessage", (msg) => {
-      set((s) => {
-        if (s.messages.some((m) => m._id === msg._id)) {
-          return s;
+      set((state) => {
+        if (state.messages.some((m) => m._id === msg._id)) {
+          return state;
         }
-        return { messages: [...s.messages, msg] };
+        return { messages: [...state.messages, msg] };
       });
     });
   },
@@ -89,21 +93,17 @@ export const useChatStore = create((set, get) => ({
     socket.on("incoming-call", ({ from, callType }) => {
       set({
         incomingCall: { from, callType },
-        callWith: from, // 🔥 IMPORTANT
-        isCalling: false,
+        callWith: from,
       });
     });
 
     /* 🔴 CALL ENDED */
     socket.on("call-ended", () => {
-      console.log("🔥 CALL ENDED RECEIVED");
       get().endCall(false);
     });
 
-    /* 🔵 OFFER */
+    /* ================= RECEIVER ================= */
     socket.on("webrtc-offer", async ({ from, offer }) => {
-      const socket = useAuthStore.getState().socket;
-
       const pc = createPeerConnection();
 
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -144,13 +144,21 @@ export const useChatStore = create((set, get) => ({
         remoteStream,
         isCalling: true,
         incomingCall: null,
+        callWith: from,
       });
     });
 
-    /* 🔵 ANSWER */
+    /* ================= CALLER ================= */
     socket.on("webrtc-answer", async ({ answer }) => {
       const { pc } = get();
-      if (pc) await pc.setRemoteDescription(answer);
+      if (!pc) return;
+
+      if (pc.signalingState !== "have-local-offer") {
+        console.log("⚠️ Ignore answer:", pc.signalingState);
+        return;
+      }
+
+      await pc.setRemoteDescription(answer);
 
       set({
         isCalling: true,
@@ -158,7 +166,6 @@ export const useChatStore = create((set, get) => ({
       });
     });
 
-    /* 🔵 ICE */
     socket.on("webrtc-ice", async ({ candidate }) => {
       const { pc } = get();
       if (pc && candidate) {
@@ -168,46 +175,34 @@ export const useChatStore = create((set, get) => ({
   },
 
   /* ================= START CALL ================= */
-  startCall: (callType) => {
+  startCall: async (callType) => {
     const socket = useAuthStore.getState().socket;
     const { selectedUser } = get();
 
     if (!socket || !selectedUser) return;
 
-    socket.emit("call-user", {
-      to: selectedUser._id,
-      callType,
-    });
-
-    set({
-      outgoingCall: {
-        to: selectedUser._id,
-        callType,
-      },
-      callWith: selectedUser._id, // 🔥 IMPORTANT
-    });
-  },
-
-  /* ================= ACCEPT CALL ================= */
-  acceptCall: async () => {
-    const socket = useAuthStore.getState().socket;
-    const { incomingCall } = get();
-
-    if (!socket || !incomingCall) return;
-
     const pc = createPeerConnection();
 
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: incomingCall.callType === "video",
+      video: callType === "video",
       audio: true,
     });
 
     stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
+    const remoteStream = new MediaStream();
+
+    pc.ontrack = (e) => {
+      e.streams[0].getTracks().forEach((t) => {
+        remoteStream.addTrack(t);
+      });
+      set({ remoteStream });
+    };
+
     pc.onicecandidate = (e) => {
       if (e.candidate) {
         socket.emit("webrtc-ice", {
-          to: incomingCall.from,
+          to: selectedUser._id,
           candidate: e.candidate,
         });
       }
@@ -217,47 +212,26 @@ export const useChatStore = create((set, get) => ({
     await pc.setLocalDescription(offer);
 
     socket.emit("webrtc-offer", {
-      to: incomingCall.from,
+      to: selectedUser._id,
       offer,
     });
 
     set({
       pc,
       localStream: stream,
-      isCalling: true,
-      incomingCall: null,
+      remoteStream,
+      outgoingCall: {
+        to: selectedUser._id,
+        callType,
+      },
+      callWith: selectedUser._id,
     });
   },
 
-  /* ================= REJECT ================= */
-  rejectCall: () => {
-    const socket = useAuthStore.getState().socket;
-    const { incomingCall } = get();
-
-    if (socket && incomingCall) {
-      socket.emit("end-call", { to: incomingCall.from });
-    }
-
+  /* ================= ACCEPT CALL ================= */
+  acceptCall: () => {
     set({
       incomingCall: null,
-      callWith: null,
-      isCalling: false,
-    });
-  },
-
-  /* ================= CANCEL ================= */
-  cancelOutgoingCall: () => {
-    const socket = useAuthStore.getState().socket;
-    const { outgoingCall } = get();
-
-    if (socket && outgoingCall) {
-      socket.emit("end-call", { to: outgoingCall.to });
-    }
-
-    set({
-      outgoingCall: null,
-      callWith: null,
-      isCalling: false,
     });
   },
 
@@ -313,7 +287,6 @@ export const useChatStore = create((set, get) => ({
       messages: [],
     }),
 }));
-
 
 // import { create } from "zustand";
 // import { axiosInstance } from "../lib/axios";

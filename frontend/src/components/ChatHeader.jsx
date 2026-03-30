@@ -1,6 +1,3 @@
-
-
-
 import { ArrowLeft, Phone, Video, MoreVertical } from "lucide-react";
 import { useChatStore } from "../store/useChatStore"; // ✅ IMPORTANT
 import { useAuthStore } from "../store/useAuthStore";
