@@ -36,6 +36,8 @@ const ChatContainer = ({ onBack }) => {
   const messageEndRef = useRef(null);
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
+  /** Remote audio plays from a dedicated element so autoplay never blocks it. */
+  const remoteAudioRef = useRef(null);
   /** Manual fix when remote looks sideways (phone → laptop). Cycles 0° → 90° → … */
   const [remoteViewRotate, setRemoteViewRotate] = useState(0);
 
@@ -74,13 +76,18 @@ const ChatContainer = ({ onBack }) => {
     if (!remoteStream) setRemoteViewRotate(0);
   }, [remoteStream]);
 
-  /* 🎥 REMOTE — one element for video+audio (standard WebRTC); muted→play→unmute for mobile autoplay */
+  /* 🎥 REMOTE:
+     - Video stays muted (for stable autoplay + black-screen prevention)
+     - Audio plays from a separate <audio> element (so it never depends on video.muted)
+  */
   useEffect(() => {
     const video = remoteVideoRef.current;
-    if (!video) return;
+    const audio = remoteAudioRef.current;
+    if (!video || !audio) return;
 
     if (!remoteStream) {
       video.srcObject = null;
+      audio.srcObject = null;
       video.style.transform = "";
       video.style.objectFit = "";
       return;
@@ -106,37 +113,55 @@ const ChatContainer = ({ onBack }) => {
       video.style.objectFit = "cover";
     }
 
-    const playRemote = async () => {
+    // Video: muted for reliable rendering across devices.
+    video.muted = true;
+    video.controls = false;
+
+    // Bind audio tracks only (so audio doesn't get blocked by video.muted).
+    const atracks = remoteStream.getAudioTracks();
+    const aStream = new MediaStream(atracks);
+    audio.srcObject = aStream;
+    audio.muted = false;
+    audio.playsInline = true;
+
+    const playVideo = async () => {
       try {
         video.muted = true;
         await video.play();
-        video.muted = false;
       } catch {
-        try {
-          video.muted = false;
-          await video.play();
-        } catch {
-          video.muted = true;
-          await video.play().catch(() => {});
-        }
+        // Ignore autoplay failures for muted video; it will still render.
       }
     };
 
-    const onUnmute = () => void playRemote();
-    remoteStream.getTracks().forEach((t) => {
-      t.addEventListener("unmute", onUnmute);
-    });
+    const playAudio = async () => {
+      try {
+        audio.muted = false;
+        await audio.play();
+      } catch {
+        // If user interaction is required, the next unmute/play attempt will fix.
+      }
+    };
 
-    video.onloadedmetadata = playRemote;
-    video.oncanplay = playRemote;
-    void playRemote();
+    const onTrackUnmute = () => {
+      void playAudio();
+    };
+
+    const onVideoUnmute = () => void playVideo();
+    vtrack?.addEventListener?.("unmute", onVideoUnmute);
+    atracks.forEach((t) => t.addEventListener?.("unmute", onTrackUnmute));
+    video.onloadedmetadata = () => void playVideo();
+    video.oncanplay = () => void playVideo();
+    audio.oncanplay = () => void playAudio();
+
+    void playVideo();
+    void playAudio();
 
     return () => {
-      remoteStream.getTracks().forEach((t) => {
-        t.removeEventListener("unmute", onUnmute);
-      });
+      vtrack?.removeEventListener?.("unmute", onVideoUnmute);
+      atracks.forEach((t) => t.removeEventListener?.("unmute", onTrackUnmute));
       video.onloadedmetadata = null;
       video.oncanplay = null;
+      audio.oncanplay = null;
       video.style.transform = "";
       video.style.objectFit = "";
     };
@@ -167,6 +192,7 @@ const ChatContainer = ({ onBack }) => {
               playsInline
               className="h-full w-full bg-neutral-900 sm:absolute sm:inset-0"
             />
+            <audio ref={remoteAudioRef} playsInline className="hidden" />
 
             <video
               ref={localVideoRef}
