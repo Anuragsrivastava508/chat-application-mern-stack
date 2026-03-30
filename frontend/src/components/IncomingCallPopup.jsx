@@ -2,7 +2,14 @@ import { Phone, Video, X } from "lucide-react";
 import { useChatStore } from "../store/useChatStore";
 
 const IncomingCallPopup = () => {
-  const { incomingCall, acceptCall, rejectCall, isCalling, users } = useChatStore();
+  const {
+    incomingCall,
+    pendingOffer,
+    acceptCall,
+    rejectCall,
+    isCalling,
+    users,
+  } = useChatStore();
 
   // ✅ FIX: hide when call started or no incoming
   if (!incomingCall || isCalling) return null;
@@ -48,8 +55,11 @@ const IncomingCallPopup = () => {
           </button>
 
           <button
-            onClick={acceptCall}
-            className="bg-green-500 text-white w-12 h-12 rounded-full flex items-center justify-center"
+            type="button"
+            disabled={!pendingOffer}
+            onClick={() => acceptCall()}
+            className="bg-green-500 text-white w-12 h-12 rounded-full flex items-center justify-center disabled:opacity-50"
+            title={pendingOffer ? "Accept" : "Connecting…"}
           >
             <Phone />
           </button>

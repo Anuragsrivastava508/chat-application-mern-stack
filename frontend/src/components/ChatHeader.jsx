@@ -41,22 +41,19 @@ const ChatHeader = ({ onBack }) => {
 
           {/* 📞 AUDIO */}
           <button
-            onClick={() => {
-              console.log("📤 START CALL CLICKED");
-              startCall();
-            }}
+            type="button"
+            onClick={() => startCall("audio")}
             className="p-2 hover:bg-base-200 rounded-full"
+            title="Voice call"
           >
             <Phone className="w-5 h-5" />
           </button>
 
-          {/* 🎥 VIDEO */}
           <button
-            onClick={() => {
-              console.log("📤 START CALL CLICKED");
-              startCall();
-            }}
+            type="button"
+            onClick={() => startCall("video")}
             className="p-2 hover:bg-base-200 rounded-full"
+            title="Video call"
           >
             <Video className="w-5 h-5" />
           </button>

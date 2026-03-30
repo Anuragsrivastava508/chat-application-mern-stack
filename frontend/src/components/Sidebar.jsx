@@ -9,7 +9,7 @@ const Sidebar = ({ onSelectUser }) => {
   const { getUsers, users, selectedUser, setSelectedUser, isUsersLoading } =
     useChatStore();
 
-  const { onlineUsers } = useAuthStore();
+  const { onlineUsers, authUser } = useAuthStore();
   const [showOnlineOnly, setShowOnlineOnly] = useState(false);
 
   // Fetch Users on Load
@@ -56,7 +56,11 @@ const Sidebar = ({ onSelectUser }) => {
           </label>
 
           <span className="text-xs text-zinc-500">
-            ({onlineUsers.length - 1} online)
+            (
+            {
+              onlineUsers.filter((id) => id !== authUser?._id).length
+            }{" "}
+            online)
           </span>
         </div>
       </div>

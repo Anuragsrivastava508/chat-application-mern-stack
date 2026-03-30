@@ -14,9 +14,12 @@ export const useChatStore = create((set, get) => ({
   messages: [],
   selectedUser: null,
   isMessagesLoading: false,
+  isUsersLoading: false,
 
   outgoingCall: null,
   incomingCall: null,
+  pendingOffer: null,
+  iceCandidateQueue: [],
   isCalling: false,
 
   callWith: null,
@@ -30,8 +33,15 @@ export const useChatStore = create((set, get) => ({
 
   /* ================= USERS ================= */
   getUsers: async () => {
-    const res = await axiosInstance.get("/messages/users");
-    set({ users: res.data });
+    set({ isUsersLoading: true });
+    try {
+      const res = await axiosInstance.get("/messages/users");
+      set({ users: res.data });
+    } catch (e) {
+      console.error(e);
+    } finally {
+      set({ isUsersLoading: false });
+    }
   },
 
   /* ================= MESSAGES ================= */
@@ -102,49 +112,20 @@ export const useChatStore = create((set, get) => ({
       get().endCall(false);
     });
 
-    /* ================= RECEIVER ================= */
-    socket.on("webrtc-offer", async ({ from, offer }) => {
-      const pc = createPeerConnection();
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
-      });
-
-      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-
-      const remoteStream = new MediaStream();
-
-      pc.ontrack = (e) => {
-        e.streams[0].getTracks().forEach((t) => {
-          remoteStream.addTrack(t);
-        });
-        set({ remoteStream });
-      };
-
-      pc.onicecandidate = (e) => {
-        if (e.candidate) {
-          socket.emit("webrtc-ice", {
-            to: from,
-            candidate: e.candidate,
-          });
+    /* ================= RECEIVER (offer queued until Accept) ================= */
+    socket.on("webrtc-offer", ({ from, offer, callType }) => {
+      const resolvedType = callType || "video";
+      set((state) => {
+        let nextIncoming = state.incomingCall;
+        if (state.incomingCall?.from === from) {
+          nextIncoming = state.incomingCall;
+        } else if (!state.incomingCall) {
+          nextIncoming = { from, callType: resolvedType };
         }
-      };
-
-      await pc.setRemoteDescription(offer);
-
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-
-      socket.emit("webrtc-answer", { to: from, answer });
-
-      set({
-        pc,
-        localStream: stream,
-        remoteStream,
-        isCalling: true,
-        incomingCall: null,
-        callWith: from,
+        return {
+          pendingOffer: { from, offer, callType: resolvedType },
+          incomingCall: nextIncoming,
+        };
       });
     });
 
@@ -153,12 +134,31 @@ export const useChatStore = create((set, get) => ({
       const { pc } = get();
       if (!pc) return;
 
-      if (pc.signalingState !== "have-local-offer") {
-        console.log("⚠️ Ignore answer:", pc.signalingState);
+      if (pc.signalingState === "stable" && pc.remoteDescription) {
         return;
       }
 
-      await pc.setRemoteDescription(answer);
+      if (pc.signalingState !== "have-local-offer") {
+        return;
+      }
+
+      const desc =
+        answer instanceof RTCSessionDescription
+          ? answer
+          : new RTCSessionDescription(answer);
+
+      try {
+        await pc.setRemoteDescription(desc);
+      } catch (e) {
+        if (
+          e?.name === "InvalidStateError" &&
+          pc.signalingState === "stable"
+        ) {
+          return;
+        }
+        console.error("webrtc-answer failed:", e);
+        return;
+      }
 
       set({
         isCalling: true,
@@ -167,15 +167,24 @@ export const useChatStore = create((set, get) => ({
     });
 
     socket.on("webrtc-ice", async ({ candidate }) => {
+      if (!candidate) return;
       const { pc } = get();
-      if (pc && candidate) {
-        await pc.addIceCandidate(candidate);
+      if (pc) {
+        try {
+          await pc.addIceCandidate(candidate);
+        } catch (e) {
+          console.log("ICE add error", e);
+        }
+      } else {
+        set((s) => ({
+          iceCandidateQueue: [...(s.iceCandidateQueue || []), candidate],
+        }));
       }
     });
   },
 
   /* ================= START CALL ================= */
-  startCall: async (callType) => {
+  startCall: async (callType = "video") => {
     const socket = useAuthStore.getState().socket;
     const { selectedUser } = get();
 
@@ -183,10 +192,16 @@ export const useChatStore = create((set, get) => ({
 
     const pc = createPeerConnection();
 
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: callType === "video",
-      audio: true,
-    });
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: callType === "video",
+        audio: true,
+      });
+    } catch (e) {
+      console.error(e);
+      return;
+    }
 
     stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
@@ -211,11 +226,7 @@ export const useChatStore = create((set, get) => ({
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
-    socket.emit("webrtc-offer", {
-      to: selectedUser._id,
-      offer,
-    });
-
+    /* Register pc in store BEFORE signaling so webrtc-answer never runs with pc === null */
     set({
       pc,
       localStream: stream,
@@ -226,13 +237,125 @@ export const useChatStore = create((set, get) => ({
       },
       callWith: selectedUser._id,
     });
+
+    socket.emit("call-user", {
+      to: selectedUser._id,
+      callType,
+    });
+
+    socket.emit("webrtc-offer", {
+      to: selectedUser._id,
+      offer,
+      callType,
+    });
   },
 
   /* ================= ACCEPT CALL ================= */
-  acceptCall: () => {
+  acceptCall: async () => {
+    const socket = useAuthStore.getState().socket;
+    const { pendingOffer, incomingCall } = get();
+
+    if (!socket || !pendingOffer) {
+      set({ incomingCall: null, pendingOffer: null });
+      return;
+    }
+
+    const { from, offer } = pendingOffer;
+    const callType =
+      incomingCall?.callType ?? pendingOffer.callType ?? "video";
+
+    const pc = createPeerConnection();
+
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: callType === "video",
+        audio: true,
+      });
+    } catch (e) {
+      console.error(e);
+      get().rejectCall();
+      return;
+    }
+
+    stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+
+    const remoteStream = new MediaStream();
+
+    pc.ontrack = (e) => {
+      e.streams[0].getTracks().forEach((t) => {
+        remoteStream.addTrack(t);
+      });
+      set({ remoteStream });
+    };
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        socket.emit("webrtc-ice", {
+          to: from,
+          candidate: e.candidate,
+        });
+      }
+    };
+
+    try {
+      const offerDesc =
+        offer instanceof RTCSessionDescription
+          ? offer
+          : new RTCSessionDescription(offer);
+      await pc.setRemoteDescription(offerDesc);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socket.emit("webrtc-answer", {
+        to: from,
+        answer: {
+          type: answer.type,
+          sdp: answer.sdp,
+        },
+      });
+
+      const queued = get().iceCandidateQueue || [];
+      for (const c of queued) {
+        try {
+          await pc.addIceCandidate(c);
+        } catch (e) {
+          console.log("ICE flush error", e);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+      get().rejectCall();
+      return;
+    }
+
+    set({
+      pc,
+      localStream: stream,
+      remoteStream,
+      isCalling: true,
+      incomingCall: null,
+      pendingOffer: null,
+      iceCandidateQueue: [],
+      callWith: from,
+    });
+  },
+
+  rejectCall: () => {
+    const socket = useAuthStore.getState().socket;
+    const { incomingCall, pendingOffer } = get();
+    const target = incomingCall?.from ?? pendingOffer?.from;
+    if (socket && target) {
+      socket.emit("end-call", { to: target });
+    }
     set({
       incomingCall: null,
+      pendingOffer: null,
+      iceCandidateQueue: [],
     });
+  },
+
+  cancelOutgoingCall: () => {
+    get().endCall(true);
   },
 
   /* ================= END CALL ================= */
@@ -255,6 +378,8 @@ export const useChatStore = create((set, get) => ({
       localStream: null,
       remoteStream: null,
       incomingCall: null,
+      pendingOffer: null,
+      iceCandidateQueue: [],
       outgoingCall: null,
       callWith: null,
       isCalling: false,

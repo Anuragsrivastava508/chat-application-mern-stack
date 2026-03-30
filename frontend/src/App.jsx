@@ -19,7 +19,7 @@ import { Loader } from "lucide-react";
 import { Toaster } from "react-hot-toast";
 
 const App = () => {
-  const { authUser, checkAuth, isCheckingAuth, onlineUsers } = useAuthStore();
+  const { authUser, checkAuth, isCheckingAuth } = useAuthStore();
   const { subscribeToMessages, subscribeToCalls } = useChatStore();
   const { theme } = useThemeStore();
 
@@ -35,9 +35,6 @@ const App = () => {
     subscribeToCalls();
   }
 }, [authUser]);
- 
-  console.log({ onlineUsers });
-  console.log({ authUser });
 
   // ⏳ loading screen
   if (isCheckingAuth && !authUser) {

@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { useChatStore } from "../store/useChatStore";
 
 import Sidebar from "../components/Sidebar";
-import IncomingCallPopup from "../components/IncomingCallPopup";
 import NoChatSelected from "../components/NoChatSelected";
 import ChatContainer from "../components/ChatContainer";
 
@@ -83,9 +82,6 @@ return (
           <ChatContainer onBack={() => setSidebarOpen(true)} />
         )}
       </div>
-
-      {/* 🔥🔥 INCOMING CALL POPUP 🔥🔥 */}
-      <IncomingCallPopup />
 
     </div>
   </div>

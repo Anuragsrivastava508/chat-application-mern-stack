@@ -84,7 +84,7 @@ socket.on("end-call", ({ to }) => {
 });
   /* ================= WEBRTC SIGNALING ================= */
 
-  socket.on("webrtc-offer", ({ to, offer }) => {
+  socket.on("webrtc-offer", ({ to, offer, callType }) => {
     const sockets = userSocketMap[to];
     if (!sockets) return;
 
@@ -92,6 +92,7 @@ socket.on("end-call", ({ to }) => {
       io.to(id).emit("webrtc-offer", {
         from: userId,
         offer,
+        callType,
       });
     });
   });

@@ -2,6 +2,7 @@ import { useChatStore } from "../store/useChatStore";
 import { useAuthStore } from "../store/useAuthStore";
 import { useEffect, useRef } from "react";
 
+import { Mic, MicOff, Video, VideoOff } from "lucide-react";
 import ChatHeader from "./ChatHeader";
 import MessageInput from "./MessageInput";
 import MessageSkeleton from "./skeletons/MessageSkeleton";
@@ -15,13 +16,9 @@ const ChatContainer = ({ onBack }) => {
     selectedUser,
     subscribeToMessages,
     unsubscribeFromMessages,
-    subscribeToCalls,
 
     /* CALL STATE */
-    incomingCall,
-    outgoingCall,
     isCalling,
-    acceptCall,
     endCall,
 
     localStream,
@@ -39,17 +36,11 @@ const ChatContainer = ({ onBack }) => {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
 
-  /* 🔥 CALL SOCKET */
-  useEffect(() => {
-    console.log("📡 CALL SUBSCRIBE");
-    subscribeToCalls();
-  }, []);
+  /* Call listeners are registered once in App when the user logs in */
 
   /* 🔥 MESSAGE SOCKET */
   useEffect(() => {
     if (!selectedUser?._id) return;
-
-    console.log("📩 LOAD MESSAGES");
 
     getMessages(selectedUser._id);
     subscribeToMessages();
@@ -65,8 +56,6 @@ const ChatContainer = ({ onBack }) => {
   /* 🎥 LOCAL VIDEO */
   useEffect(() => {
     if (localVideoRef.current && localStream) {
-      console.log("🎥 LOCAL STREAM ATTACH");
-
       const video = localVideoRef.current;
       video.srcObject = localStream;
       video.muted = true;
@@ -78,8 +67,6 @@ const ChatContainer = ({ onBack }) => {
   /* 🎥 REMOTE VIDEO */
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
-      console.log("🎥 ATTACH REMOTE VIDEO");
-
       const video = remoteVideoRef.current;
       video.srcObject = remoteStream;
 
@@ -104,95 +91,57 @@ const ChatContainer = ({ onBack }) => {
     <div className="flex flex-col h-full overflow-hidden relative">
       <ChatHeader onBack={onBack} />
 
-      {/* 📥 INCOMING CALL */}
-      {incomingCall && !isCalling && (
-        <div className="absolute inset-0 bg-black/80 z-50 flex flex-col items-center justify-center text-white">
-          <h2 className="text-2xl mb-4">📞 Incoming Call</h2>
-
-          <div className="flex gap-4">
-            <button
-              onClick={() => {
-                console.log("✅ ACCEPT CLICK");
-                acceptCall();
-              }}
-              className="bg-green-600 px-6 py-2 rounded-full"
-            >
-              Accept
-            </button>
-
-            <button
-              onClick={() => {
-                console.log("❌ REJECT CLICK");
-                endCall();
-              }}
-              className="bg-red-600 px-6 py-2 rounded-full"
-            >
-              Reject
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 📤 CALLING UI */}
-      {outgoingCall && !isCalling && (
-        <div className="absolute inset-0 bg-black/80 z-50 flex flex-col items-center justify-center text-white">
-          <h2 className="text-2xl mb-4">📞 Calling...</h2>
-
-          <button
-            onClick={() => {
-              console.log("❌ CANCEL CALL");
-              endCall();
-            }}
-            className="bg-red-600 px-6 py-2 rounded-full"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
-
-      {/* 🔥 CALL SCREEN */}
+      {/* Active call: full-area video + PiP + controls (incoming/outgoing use global popups) */}
       {isCalling && (
-        <div className="absolute inset-0 bg-black z-50">
+        <div className="absolute inset-0 z-50 flex flex-col bg-black">
+          <div className="relative flex-1 min-h-0">
+            <video
+              ref={remoteVideoRef}
+              autoPlay
+              playsInline
+              className="absolute inset-0 w-full h-full object-cover bg-neutral-900"
+            />
 
-          {/* REMOTE VIDEO */}
-          <video
-            ref={remoteVideoRef}
-            autoPlay
-            playsInline
-            className="w-full h-full object-cover bg-black"
-          />
+            <video
+              ref={localVideoRef}
+              autoPlay
+              muted
+              playsInline
+              className="absolute bottom-20 right-4 w-40 h-28 sm:w-44 sm:h-32 rounded-xl border-2 border-white/90 shadow-lg object-cover bg-neutral-800"
+            />
+          </div>
 
-          {/* LOCAL VIDEO */}
-          <video
-            ref={localVideoRef}
-            autoPlay
-            muted
-            playsInline
-            className="absolute bottom-24 right-4 w-36 h-28 rounded-lg border-2 border-white object-cover"
-          />
-
-          {/* CONTROLS */}
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-4">
+          <div className="shrink-0 flex justify-center gap-4 pb-6 pt-2 bg-gradient-to-t from-black/80 to-transparent">
             <button
+              type="button"
               onClick={toggleMic}
-              className="bg-gray-800 text-white px-4 py-2 rounded-full"
+              className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-700 text-white hover:bg-neutral-600"
+              title={isMicOn ? "Mute" : "Unmute"}
             >
-              {isMicOn ? "🎤" : "🔇"}
+              {isMicOn ? (
+                <Mic className="h-5 w-5" />
+              ) : (
+                <MicOff className="h-5 w-5" />
+              )}
             </button>
 
             <button
+              type="button"
               onClick={toggleCamera}
-              className="bg-gray-800 text-white px-4 py-2 rounded-full"
+              className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-700 text-white hover:bg-neutral-600"
+              title={isCameraOn ? "Camera off" : "Camera on"}
             >
-              {isCameraOn ? "📷" : "🚫"}
+              {isCameraOn ? (
+                <Video className="h-5 w-5" />
+              ) : (
+                <VideoOff className="h-5 w-5" />
+              )}
             </button>
 
             <button
-              onClick={() => {
-                console.log("🔴 END CALL CLICK");
-                endCall();
-              }}
-              className="bg-red-600 text-white px-6 py-2 rounded-full"
+              type="button"
+              onClick={() => endCall()}
+              className="rounded-full bg-red-600 px-8 py-3 text-sm font-semibold text-white hover:bg-red-700"
             >
               End
             </button>
