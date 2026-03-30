@@ -1,8 +1,8 @@
 import { useChatStore } from "../store/useChatStore";
 import { useAuthStore } from "../store/useAuthStore";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { Mic, MicOff, Video, VideoOff } from "lucide-react";
+import { Mic, MicOff, RotateCw, Video, VideoOff } from "lucide-react";
 import ChatHeader from "./ChatHeader";
 import MessageInput from "./MessageInput";
 import MessageSkeleton from "./skeletons/MessageSkeleton";
@@ -36,8 +36,8 @@ const ChatContainer = ({ onBack }) => {
   const messageEndRef = useRef(null);
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
-  /** Remote audio plays here; video stays muted for mobile autoplay policies. */
-  const remoteAudioRef = useRef(null);
+  /** Manual fix when remote looks sideways (phone → laptop). Cycles 0° → 90° → … */
+  const [remoteViewRotate, setRemoteViewRotate] = useState(0);
 
   /* Call listeners are registered once in App when the user logs in */
 
@@ -70,85 +70,77 @@ const ChatContainer = ({ onBack }) => {
     video.play().catch(() => {});
   }, [localStream]);
 
-  /* 🎥 REMOTE — split video (muted) + audio: fixes black screen on many phones; rotation from video track */
+  useEffect(() => {
+    if (!remoteStream) setRemoteViewRotate(0);
+  }, [remoteStream]);
+
+  /* 🎥 REMOTE — one element for video+audio (standard WebRTC); muted→play→unmute for mobile autoplay */
   useEffect(() => {
     const video = remoteVideoRef.current;
-    const audio = remoteAudioRef.current;
-    if (!video || !audio) return;
+    if (!video) return;
 
     if (!remoteStream) {
       video.srcObject = null;
-      audio.srcObject = null;
       video.style.transform = "";
       video.style.objectFit = "";
       return;
     }
 
-    const vtracks = remoteStream.getVideoTracks();
-    const atracks = remoteStream.getAudioTracks();
-
-    const vStream = new MediaStream(vtracks);
-    const aStream = new MediaStream(atracks);
-
-    const vtrack = vtracks[0];
+    const vtrack = remoteStream.getVideoTracks()[0];
     const settings = vtrack?.getSettings?.() ?? {};
-    const rotation =
+    const metaRot =
       typeof settings.rotation === "number" ? settings.rotation : 0;
+    const totalDeg = ((metaRot + remoteViewRotate) % 360 + 360) % 360;
 
-    video.srcObject = vStream;
-    video.muted = true;
-    video.defaultMuted = true;
+    video.srcObject = remoteStream;
     video.setAttribute("playsinline", "");
     video.setAttribute("webkit-playsinline", "true");
     video.playsInline = true;
     video.controls = false;
 
-    audio.srcObject = aStream;
-    audio.setAttribute("playsinline", "");
-    audio.playsInline = true;
-
-    if (rotation !== 0) {
-      video.style.transform = `rotate(${rotation}deg)`;
+    if (totalDeg !== 0) {
+      video.style.transform = `rotate(${totalDeg}deg)`;
       video.style.objectFit = "contain";
     } else {
       video.style.transform = "";
       video.style.objectFit = "cover";
     }
 
-    const playAll = () => {
-      void video.play().catch(() => {});
-      void audio.play().catch(() => {});
+    const playRemote = async () => {
+      try {
+        video.muted = true;
+        await video.play();
+        video.muted = false;
+      } catch {
+        try {
+          video.muted = false;
+          await video.play();
+        } catch {
+          video.muted = true;
+          await video.play().catch(() => {});
+        }
+      }
     };
 
-    const onUnmute = () => playAll();
-    vtracks.forEach((t) => {
-      t.addEventListener("unmute", onUnmute);
-      t.addEventListener("ended", playAll);
-    });
-    atracks.forEach((t) => {
+    const onUnmute = () => void playRemote();
+    remoteStream.getTracks().forEach((t) => {
       t.addEventListener("unmute", onUnmute);
     });
 
-    video.onloadedmetadata = playAll;
-    video.oncanplay = playAll;
-    audio.oncanplay = playAll;
-    void playAll();
+    video.onloadedmetadata = playRemote;
+    video.oncanplay = playRemote;
+    void playRemote();
 
     return () => {
-      vtracks.forEach((t) => {
-        t.removeEventListener("unmute", onUnmute);
-        t.removeEventListener("ended", playAll);
-      });
-      atracks.forEach((t) => {
+      remoteStream.getTracks().forEach((t) => {
         t.removeEventListener("unmute", onUnmute);
       });
       video.onloadedmetadata = null;
       video.oncanplay = null;
-      audio.oncanplay = null;
       video.style.transform = "";
       video.style.objectFit = "";
     };
-  }, [remoteStream, remoteStream?.getTracks().length]);
+  }, [remoteStream, remoteStream?.getTracks().length, remoteViewRotate]);
 
   /* ================= LOADING ================= */
   if (isMessagesLoading) {
@@ -172,11 +164,9 @@ const ChatContainer = ({ onBack }) => {
             <video
               ref={remoteVideoRef}
               autoPlay
-              muted
               playsInline
               className="h-full w-full bg-neutral-900 sm:absolute sm:inset-0"
             />
-            <audio ref={remoteAudioRef} playsInline className="hidden" />
 
             <video
               ref={localVideoRef}
@@ -212,6 +202,15 @@ const ChatContainer = ({ onBack }) => {
               ) : (
                 <VideoOff className="h-5 w-5" />
               )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setRemoteViewRotate((d) => (d + 90) % 360)}
+              className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-700 text-white hover:bg-neutral-600"
+              title="Rotate remote view"
+            >
+              <RotateCw className="h-5 w-5" />
             </button>
 
             <button

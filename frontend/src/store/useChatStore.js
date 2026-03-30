@@ -3,23 +3,44 @@ import { axiosInstance } from "../lib/axios";
 import { useAuthStore } from "./useAuthStore";
 
 /* ================= WEBRTC ================= */
-const createPeerConnection = () =>
-  new RTCPeerConnection({
+/** One TURN URL per entry avoids parser quirks; fallback to STUN-only if anything throws. */
+function createPeerConnection() {
+  const withTurn = {
     iceServers: [
       { urls: "stun:stun.l.google.com:19302" },
       { urls: "stun:stun1.l.google.com:19302" },
       {
-        /* Only udp/tcp are valid ?transport= values in Chromium */
-        urls: [
-          "turn:openrelay.metered.ca:80",
-          "turn:openrelay.metered.ca:443?transport=tcp",
-        ],
+        urls: "turn:openrelay.metered.ca:80",
+        username: "openrelayproject",
+        credential: "openrelayproject",
+      },
+      {
+        urls: "turn:openrelay.metered.ca:443?transport=tcp",
         username: "openrelayproject",
         credential: "openrelayproject",
       },
     ],
-    iceCandidatePoolSize: 10,
-  });
+  };
+  const stunOnly = {
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+    ],
+  };
+  try {
+    return new RTCPeerConnection(withTurn);
+  } catch (e) {
+    console.warn("RTCPeerConnection (STUN+TURN) failed, using STUN only:", e);
+    try {
+      return new RTCPeerConnection(stunOnly);
+    } catch (e2) {
+      console.warn("RTCPeerConnection (dual STUN) failed:", e2);
+      return new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      });
+    }
+  }
+}
 
 /** New MediaStream each time so Zustand + React see a new reference when tracks arrive. */
 function mergeRemoteTrack(get, set, e) {
