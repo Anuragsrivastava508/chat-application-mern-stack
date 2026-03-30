@@ -192,20 +192,62 @@ export const useChatStore = create((set, get) => ({
       get().endCall(false);
     });
 
-    /* ================= RECEIVER (offer queued until Accept) ================= */
-    socket.on("webrtc-offer", ({ from, offer, callType }) => {
+    /* ================= RECEIVER =================
+       Critical: pc must be created as soon as webrtc-offer arrives.
+       Otherwise the callee can end up with "remote black screen" because tracks/ICE arrive
+       before the peer connection + ontrack wiring is ready.
+    */
+    socket.on("webrtc-offer", async ({ from, offer, callType }) => {
       const resolvedType = callType || "video";
-      set((state) => {
-        let nextIncoming = state.incomingCall;
-        if (state.incomingCall?.from === from) {
-          nextIncoming = state.incomingCall;
-        } else if (!state.incomingCall) {
-          nextIncoming = { from, callType: resolvedType };
-        }
-        return {
-          pendingOffer: { from, offer, callType: resolvedType },
-          incomingCall: nextIncoming,
-        };
+
+      // Clean old call state if any
+      const prev = get();
+      if (prev.pc) {
+        try {
+          prev.pc.close();
+        } catch {}
+      }
+
+      const pc = createPeerConnection();
+
+      // Attach remote tracks immediately (so we can render even before "Accept")
+      pc.ontrack = (e) => mergeRemoteTrack(get, set, e);
+
+      // Send ICE candidates back to caller
+      pc.onicecandidate = (e) => {
+        if (!e.candidate) return;
+        socket.emit("webrtc-ice", {
+          to: from,
+          candidate: e.candidate.toJSON ? e.candidate.toJSON() : e.candidate,
+        });
+      };
+
+      try {
+        const offerDesc =
+          offer instanceof RTCSessionDescription
+            ? offer
+            : new RTCSessionDescription(offer);
+        await pc.setRemoteDescription(offerDesc);
+      } catch (e) {
+        console.error("setRemoteDescription failed (receiver):", e);
+        try {
+          pc.close();
+        } catch {}
+        return;
+      }
+
+      set({
+        pc,
+        remoteStream: null,
+        localStream: null,
+        incomingCall: { from, callType: resolvedType },
+        pendingOffer: { from, callType: resolvedType },
+        iceCandidateQueue: [],
+        outgoingCall: null,
+        callWith: from,
+        isCalling: false,
+        isMicOn: true,
+        isCameraOn: resolvedType === "video",
       });
     });
 
@@ -340,62 +382,45 @@ export const useChatStore = create((set, get) => ({
   /* ================= ACCEPT CALL ================= */
   acceptCall: async () => {
     const socket = useAuthStore.getState().socket;
-    const { pendingOffer, incomingCall } = get();
+    const { pendingOffer, incomingCall, pc: existingPc } = get();
 
     if (!socket || !pendingOffer) {
       set({ incomingCall: null, pendingOffer: null });
       return;
     }
 
-    const { from, offer } = pendingOffer;
+    const { from } = pendingOffer;
     const callType =
       incomingCall?.callType ?? pendingOffer.callType ?? "video";
 
-    if (get().pc || get().localStream) {
-      get().endCall(false);
+    // If we somehow don't have the receiver pc yet, create it (fallback)
+    const pc = existingPc || createPeerConnection();
+
+    if (!existingPc && pc) {
+      // In fallback mode, we rely on startCall/createOffer flow to re-send offer soon.
+      // But for normal flow, receiver pc is already created in webrtc-offer handler.
+      set({ pc });
     }
-
-    set({
-      remoteStream: null,
-      isMicOn: true,
-      isCameraOn: callType === "video",
-    });
-
-    const pc = createPeerConnection();
 
     let stream;
     try {
       stream = await getCallMediaStream(callType);
     } catch (e) {
       console.error(e);
-      pc.close();
+      try {
+        pc.close();
+      } catch {}
       get().rejectCall();
       return;
     }
 
+    // Attach local tracks now that we're accepting
     stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
-    pc.ontrack = (e) => mergeRemoteTrack(get, set, e);
-
-    pc.onicecandidate = (e) => {
-      if (e.candidate) {
-        socket.emit("webrtc-ice", {
-          to: from,
-          candidate: e.candidate.toJSON
-            ? e.candidate.toJSON()
-            : e.candidate,
-        });
-      }
-    };
-
     try {
-      const offerDesc =
-        offer instanceof RTCSessionDescription
-          ? offer
-          : new RTCSessionDescription(offer);
-      await pc.setRemoteDescription(offerDesc);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
+
       socket.emit("webrtc-answer", {
         to: from,
         answer: {
@@ -404,6 +429,7 @@ export const useChatStore = create((set, get) => ({
         },
       });
 
+      // Flush any queued ICE candidates (should be rare now)
       const queued = get().iceCandidateQueue || [];
       for (const c of queued) {
         try {
@@ -413,7 +439,7 @@ export const useChatStore = create((set, get) => ({
         }
       }
     } catch (e) {
-      console.error(e);
+      console.error("acceptCall failed:", e);
       get().rejectCall();
       return;
     }
@@ -421,26 +447,42 @@ export const useChatStore = create((set, get) => ({
     set({
       pc,
       localStream: stream,
-      remoteStream: get().remoteStream ?? new MediaStream(),
       isCalling: true,
       incomingCall: null,
       pendingOffer: null,
       iceCandidateQueue: [],
       callWith: from,
+      outgoingCall: null,
     });
   },
 
   rejectCall: () => {
     const socket = useAuthStore.getState().socket;
-    const { incomingCall, pendingOffer } = get();
+    const { incomingCall, pendingOffer, pc, localStream } = get();
     const target = incomingCall?.from ?? pendingOffer?.from;
     if (socket && target) {
       socket.emit("end-call", { to: target });
     }
+
+    if (localStream) {
+      localStream.getTracks().forEach((t) => t.stop());
+    }
+    if (pc) {
+      try {
+        pc.close();
+      } catch {}
+    }
+
     set({
+      pc: null,
+      localStream: null,
+      remoteStream: null,
       incomingCall: null,
       pendingOffer: null,
       iceCandidateQueue: [],
+      outgoingCall: null,
+      callWith: null,
+      isCalling: false,
     });
   },
 
