@@ -18,7 +18,7 @@ const IncomingCallPopup = () => {
     users.find((u) => u._id === incomingCall.from) || {};
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40">
       <div className="bg-base-100 shadow-xl rounded-xl w-80 p-4 border border-base-300">
 
         {/* HEADER */}

@@ -19,6 +19,7 @@ const ChatContainer = ({ onBack }) => {
 
     /* CALL STATE */
     isCalling,
+    outgoingCall,
     endCall,
 
     localStream,
@@ -55,26 +56,36 @@ const ChatContainer = ({ onBack }) => {
 
   /* 🎥 LOCAL VIDEO */
   useEffect(() => {
-    if (localVideoRef.current && localStream) {
-      const video = localVideoRef.current;
-      video.srcObject = localStream;
-      video.muted = true;
-
-      video.play().catch((e) => console.log("Local play error", e));
+    const video = localVideoRef.current;
+    if (!video) return;
+    if (!localStream) {
+      video.srcObject = null;
+      return;
     }
+    video.srcObject = localStream;
+    video.muted = true;
+    video.playsInline = true;
+    video.play().catch(() => {});
   }, [localStream]);
 
-  /* 🎥 REMOTE VIDEO */
+  /* 🎥 REMOTE VIDEO — must re-bind when stream ref or tracks change */
   useEffect(() => {
-    if (remoteVideoRef.current && remoteStream) {
-      const video = remoteVideoRef.current;
-      video.srcObject = remoteStream;
-
-      video.onloadedmetadata = () => {
-        video.play().catch((e) => console.log("Remote play error", e));
-      };
+    const video = remoteVideoRef.current;
+    if (!video) return;
+    if (!remoteStream) {
+      video.srcObject = null;
+      return;
     }
-  }, [remoteStream]);
+    video.srcObject = remoteStream;
+    video.muted = false;
+    video.playsInline = true;
+    const play = () => video.play().catch(() => {});
+    video.onloadedmetadata = play;
+    play();
+    return () => {
+      video.onloadedmetadata = null;
+    };
+  }, [remoteStream, remoteStream?.getTracks().length]);
 
   /* ================= LOADING ================= */
   if (isMessagesLoading) {
@@ -91,8 +102,8 @@ const ChatContainer = ({ onBack }) => {
     <div className="flex flex-col h-full overflow-hidden relative">
       <ChatHeader onBack={onBack} />
 
-      {/* Active call: full-area video + PiP + controls (incoming/outgoing use global popups) */}
-      {isCalling && (
+      {/* Active / dialing: show media when local or remote stream exists */}
+      {(isCalling || outgoingCall) && (
         <div className="absolute inset-0 z-50 flex flex-col bg-black">
           <div className="relative flex-1 min-h-0">
             <video

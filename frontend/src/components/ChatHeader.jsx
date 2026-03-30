@@ -1,12 +1,9 @@
 import { ArrowLeft, Phone, Video, MoreVertical } from "lucide-react";
 import { useChatStore } from "../store/useChatStore"; // ✅ IMPORTANT
 import { useAuthStore } from "../store/useAuthStore";
-import { useState } from "react";
-
 const ChatHeader = ({ onBack }) => {
-  const { selectedUser, startCall } = useChatStore(); // ✅ FIXED
+  const { selectedUser, startCall } = useChatStore();
   const { onlineUsers } = useAuthStore();
-  const [openMenu, setOpenMenu] = useState(false);
 
   if (!selectedUser) return null;
 

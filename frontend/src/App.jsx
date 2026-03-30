@@ -30,11 +30,11 @@ const App = () => {
 
   // 🔥 attach socket listeners AFTER login
   useEffect(() => {
-  if (authUser) {
-    subscribeToMessages();
-    subscribeToCalls();
-  }
-}, [authUser]);
+    if (authUser) {
+      subscribeToMessages();
+      subscribeToCalls();
+    }
+  }, [authUser, subscribeToMessages, subscribeToCalls]);
 
   // ⏳ loading screen
   if (isCheckingAuth && !authUser) {
@@ -48,7 +48,7 @@ const App = () => {
   return (
     <div data-theme={theme}>
       <Navbar />
-     <IncomingCallPopup />
+      <IncomingCallPopup />
       <OutgoingCallPopup />
       <Routes>
 

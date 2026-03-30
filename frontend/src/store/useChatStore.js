@@ -8,6 +8,23 @@ const createPeerConnection = () =>
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   });
 
+/** New MediaStream each time so Zustand + React see a new reference when tracks arrive. */
+function mergeRemoteTrack(get, set, e) {
+  const track = e.track;
+  if (!track) return;
+  const prev = get().remoteStream;
+  const existing = prev ? [...prev.getTracks()] : [];
+  const merged = [...existing.filter((t) => t.id !== track.id), track];
+  set({ remoteStream: new MediaStream(merged) });
+}
+
+function normalizeIceCandidate(candidate) {
+  if (!candidate) return null;
+  return candidate instanceof RTCIceCandidate
+    ? candidate
+    : new RTCIceCandidate(candidate);
+}
+
 export const useChatStore = create((set, get) => ({
   /* ================= STATE ================= */
   users: [],
@@ -167,17 +184,18 @@ export const useChatStore = create((set, get) => ({
     });
 
     socket.on("webrtc-ice", async ({ candidate }) => {
-      if (!candidate) return;
+      const ci = normalizeIceCandidate(candidate);
+      if (!ci) return;
       const { pc } = get();
       if (pc) {
         try {
-          await pc.addIceCandidate(candidate);
+          await pc.addIceCandidate(ci);
         } catch (e) {
           console.log("ICE add error", e);
         }
       } else {
         set((s) => ({
-          iceCandidateQueue: [...(s.iceCandidateQueue || []), candidate],
+          iceCandidateQueue: [...(s.iceCandidateQueue || []), ci],
         }));
       }
     });
@@ -189,6 +207,16 @@ export const useChatStore = create((set, get) => ({
     const { selectedUser } = get();
 
     if (!socket || !selectedUser) return;
+
+    if (get().pc || get().localStream) {
+      get().endCall(false);
+    }
+
+    set({
+      remoteStream: null,
+      isMicOn: true,
+      isCameraOn: callType === "video",
+    });
 
     const pc = createPeerConnection();
 
@@ -205,32 +233,30 @@ export const useChatStore = create((set, get) => ({
 
     stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
-    const remoteStream = new MediaStream();
-
-    pc.ontrack = (e) => {
-      e.streams[0].getTracks().forEach((t) => {
-        remoteStream.addTrack(t);
-      });
-      set({ remoteStream });
-    };
+    pc.ontrack = (e) => mergeRemoteTrack(get, set, e);
 
     pc.onicecandidate = (e) => {
       if (e.candidate) {
         socket.emit("webrtc-ice", {
           to: selectedUser._id,
-          candidate: e.candidate,
+          candidate: e.candidate.toJSON
+            ? e.candidate.toJSON()
+            : e.candidate,
         });
       }
     };
 
-    const offer = await pc.createOffer();
+    const offer = await pc.createOffer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: callType === "video",
+    });
     await pc.setLocalDescription(offer);
 
     /* Register pc in store BEFORE signaling so webrtc-answer never runs with pc === null */
     set({
       pc,
       localStream: stream,
-      remoteStream,
+      remoteStream: null,
       outgoingCall: {
         to: selectedUser._id,
         callType,
@@ -245,7 +271,7 @@ export const useChatStore = create((set, get) => ({
 
     socket.emit("webrtc-offer", {
       to: selectedUser._id,
-      offer,
+      offer: { type: offer.type, sdp: offer.sdp },
       callType,
     });
   },
@@ -264,6 +290,16 @@ export const useChatStore = create((set, get) => ({
     const callType =
       incomingCall?.callType ?? pendingOffer.callType ?? "video";
 
+    if (get().pc || get().localStream) {
+      get().endCall(false);
+    }
+
+    set({
+      remoteStream: null,
+      isMicOn: true,
+      isCameraOn: callType === "video",
+    });
+
     const pc = createPeerConnection();
 
     let stream;
@@ -280,20 +316,15 @@ export const useChatStore = create((set, get) => ({
 
     stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
-    const remoteStream = new MediaStream();
-
-    pc.ontrack = (e) => {
-      e.streams[0].getTracks().forEach((t) => {
-        remoteStream.addTrack(t);
-      });
-      set({ remoteStream });
-    };
+    pc.ontrack = (e) => mergeRemoteTrack(get, set, e);
 
     pc.onicecandidate = (e) => {
       if (e.candidate) {
         socket.emit("webrtc-ice", {
           to: from,
-          candidate: e.candidate,
+          candidate: e.candidate.toJSON
+            ? e.candidate.toJSON()
+            : e.candidate,
         });
       }
     };
@@ -317,7 +348,7 @@ export const useChatStore = create((set, get) => ({
       const queued = get().iceCandidateQueue || [];
       for (const c of queued) {
         try {
-          await pc.addIceCandidate(c);
+          await pc.addIceCandidate(normalizeIceCandidate(c));
         } catch (e) {
           console.log("ICE flush error", e);
         }
@@ -331,7 +362,7 @@ export const useChatStore = create((set, get) => ({
     set({
       pc,
       localStream: stream,
-      remoteStream,
+      remoteStream: get().remoteStream ?? new MediaStream(),
       isCalling: true,
       incomingCall: null,
       pendingOffer: null,
