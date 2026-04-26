@@ -26,7 +26,7 @@ export const generateToken = (userId, res) => {
 res.cookie("jwt", token, {
   httpOnly: true,
   secure: true,
-  sameSite: "lax",   // 🔥 FINAL FIX
+  sameSite: "none",   // 🔥 FINAL FIX
   path: "/",
   maxAge: 7 * 24 * 60 * 60 * 1000,
 });
