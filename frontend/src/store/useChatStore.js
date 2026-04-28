@@ -1,4 +1,5 @@
 
+
 import { create } from "zustand";
 import { axiosInstance } from "../lib/axios";
 import { useAuthStore } from "./useAuthStore";
@@ -26,7 +27,6 @@ function createPeerConnection() {
   });
 }
 
-/* ✅ FIX: Always new MediaStream so React re-renders */
 function mergeRemoteTrack(get, set, e) {
   console.log("[ontrack] fired", e.track?.kind, "streams:", e.streams?.length);
   let tracks = [];
@@ -78,7 +78,6 @@ async function getCallMediaStream(callType) {
 }
 
 export const useChatStore = create((set, get) => ({
-  /* ================= STATE ================= */
   users: [],
   messages: [],
   selectedUser: null,
@@ -90,6 +89,7 @@ export const useChatStore = create((set, get) => ({
   pendingOffer: null,
   iceCandidateQueue: [],
   isCalling: false,
+  callActive: false, // ✅ NEW: true hote hi koi bhi naya offer/reset block hoga
 
   callWith: null,
   pc: null,
@@ -98,30 +98,22 @@ export const useChatStore = create((set, get) => ({
   isMicOn: true,
   isCameraOn: true,
 
-  /* ================= USERS ================= */
   getUsers: async () => {
     set({ isUsersLoading: true });
     try {
       const res = await axiosInstance.get("/messages/users");
       set({ users: res.data });
-    } catch (e) {
-      console.error(e);
-    } finally {
-      set({ isUsersLoading: false });
-    }
+    } catch (e) { console.error(e); }
+    finally { set({ isUsersLoading: false }); }
   },
 
-  /* ================= MESSAGES ================= */
   getMessages: async (id) => {
     set({ isMessagesLoading: true });
     try {
       const res = await axiosInstance.get(`/messages/${id}`);
       set({ messages: res.data });
-    } catch (e) {
-      console.error(e);
-    } finally {
-      set({ isMessagesLoading: false });
-    }
+    } catch (e) { console.error(e); }
+    finally { set({ isMessagesLoading: false }); }
   },
 
   sendMessage: async (data) => {
@@ -130,7 +122,6 @@ export const useChatStore = create((set, get) => ({
     await axiosInstance.post(`/messages/send/${selectedUser._id}`, data);
   },
 
-  /* ================= SOCKET (MESSAGES) ================= */
   subscribeToMessages: () => {
     const socket = useAuthStore.getState().socket;
     if (!socket) return;
@@ -147,7 +138,6 @@ export const useChatStore = create((set, get) => ({
     useAuthStore.getState().socket?.off("newMessage");
   },
 
-  /* ================= SOCKET (CALLS) ================= */
   subscribeToCalls: () => {
     const socket = useAuthStore.getState().socket;
     if (!socket) return;
@@ -159,6 +149,7 @@ export const useChatStore = create((set, get) => ({
     socket.off("call-ended");
 
     socket.on("incoming-call", ({ from, callType }) => {
+      if (get().callActive) return; // ignore if already in call
       set({ incomingCall: { from, callType }, callWith: from });
     });
 
@@ -166,30 +157,28 @@ export const useChatStore = create((set, get) => ({
       get().endCall(false);
     });
 
-    /* ================= RECEIVER ================= */
+    /* ===== RECEIVER ===== */
     socket.on("webrtc-offer", async ({ from, offer, callType }) => {
       const resolvedType = callType || "video";
+      const state = get();
 
-      const prev = get();
-
-      // ✅ FIX: Ignore duplicate offers if already connected or connecting
-      if (prev.isCalling) {
-        console.log("[webrtc-offer] ignored — isCalling true");
+      // ✅ BLOCK if already in active call
+      if (state.callActive) {
+        console.log("[webrtc-offer] BLOCKED — callActive true");
         return;
       }
-      if (prev.pc && (prev.pc.connectionState === "connected" || prev.pc.connectionState === "connecting")) {
-        console.log("[webrtc-offer] ignored — pc already", prev.pc.connectionState);
+      // ✅ BLOCK duplicate from same caller
+      if (state.pendingOffer && state.pendingOffer.from === from) {
+        console.log("[webrtc-offer] BLOCKED — duplicate from same caller");
         return;
       }
-      // ✅ FIX: Same caller sending duplicate offer — ignore
-      if (prev.pendingOffer && prev.pendingOffer.from === from) {
-        console.log("[webrtc-offer] ignored — same caller duplicate");
+      // ✅ BLOCK if pc already connected
+      if (state.pc && ["connected", "connecting"].includes(state.pc.connectionState)) {
+        console.log("[webrtc-offer] BLOCKED — pc already", state.pc.connectionState);
         return;
       }
 
-      if (prev.pc) {
-        try { prev.pc.close(); } catch {}
-      }
+      if (state.pc) { try { state.pc.close(); } catch {} }
 
       const pc = createPeerConnection();
       pc.ontrack = (e) => mergeRemoteTrack(get, set, e);
@@ -206,11 +195,9 @@ export const useChatStore = create((set, get) => ({
         console.log("[Receiver] ICE gathering:", pc.iceGatheringState);
 
       try {
-        const offerDesc =
-          offer instanceof RTCSessionDescription
-            ? offer
-            : new RTCSessionDescription(offer);
-        await pc.setRemoteDescription(offerDesc);
+        await pc.setRemoteDescription(
+          offer instanceof RTCSessionDescription ? offer : new RTCSessionDescription(offer)
+        );
       } catch (e) {
         console.error("setRemoteDescription failed:", e);
         try { pc.close(); } catch {}
@@ -227,39 +214,35 @@ export const useChatStore = create((set, get) => ({
         outgoingCall: null,
         callWith: from,
         isCalling: false,
+        callActive: false,
         isMicOn: true,
         isCameraOn: resolvedType === "video",
       });
     });
 
-    /* ================= CALLER ================= */
+    /* ===== CALLER ===== */
     socket.on("webrtc-answer", async ({ answer }) => {
-      const { pc, isCalling } = get();
+      const { pc, callActive } = get();
       if (!pc) return;
-
-      // ✅ FIX: Already connected — duplicate answer ignore karo
-      if (isCalling) {
-        console.log("[webrtc-answer] ignored — already in call");
+      if (callActive) {
+        console.log("[webrtc-answer] BLOCKED — callActive true");
         return;
       }
-
       if (pc.signalingState === "stable" && pc.remoteDescription) return;
       if (pc.signalingState !== "have-local-offer") return;
 
-      const desc =
-        answer instanceof RTCSessionDescription
-          ? answer
-          : new RTCSessionDescription(answer);
-
       try {
-        await pc.setRemoteDescription(desc);
+        await pc.setRemoteDescription(
+          answer instanceof RTCSessionDescription ? answer : new RTCSessionDescription(answer)
+        );
       } catch (e) {
         if (e?.name === "InvalidStateError" && pc.signalingState === "stable") return;
         console.error("webrtc-answer failed:", e);
         return;
       }
 
-      set({ isCalling: true, outgoingCall: null });
+      // ✅ callActive = true — ab kuch bhi reset nahi karega
+      set({ isCalling: true, callActive: true, outgoingCall: null });
     });
 
     socket.on("webrtc-ice", async ({ candidate }) => {
@@ -267,35 +250,28 @@ export const useChatStore = create((set, get) => ({
       if (!ci) return;
       const { pc } = get();
       if (pc && pc.remoteDescription) {
-        try { await pc.addIceCandidate(ci); } catch (e) {
-          console.warn("ICE add error:", e);
-        }
+        try { await pc.addIceCandidate(ci); }
+        catch (e) { console.warn("ICE add error:", e); }
       } else {
-        set((s) => ({
-          iceCandidateQueue: [...(s.iceCandidateQueue || []), ci],
-        }));
+        set((s) => ({ iceCandidateQueue: [...(s.iceCandidateQueue || []), ci] }));
       }
     });
   },
 
-  /* ================= START CALL ================= */
   startCall: async (callType = "video") => {
     const socket = useAuthStore.getState().socket;
     const { selectedUser } = get();
     if (!socket || !selectedUser) return;
 
-    // ✅ FIX: Already in call — ignore
-    if (get().isCalling) {
-      console.log("[startCall] already in call, ignoring");
+    if (get().callActive) {
+      console.log("[startCall] BLOCKED — callActive true");
       return;
     }
 
     if (get().pc || get().localStream) get().endCall(false);
-
     set({ remoteStream: null, isMicOn: true, isCameraOn: callType === "video" });
 
     const pc = createPeerConnection();
-
     let stream;
     try {
       stream = await getCallMediaStream(callType);
@@ -327,9 +303,7 @@ export const useChatStore = create((set, get) => ({
     await pc.setLocalDescription(offer);
 
     set({
-      pc,
-      localStream: stream,
-      remoteStream: null,
+      pc, localStream: stream, remoteStream: null,
       outgoingCall: { to: selectedUser._id, callType },
       callWith: selectedUser._id,
     });
@@ -342,7 +316,6 @@ export const useChatStore = create((set, get) => ({
     });
   },
 
-  /* ================= ACCEPT CALL ================= */
   acceptCall: async () => {
     const socket = useAuthStore.getState().socket;
     const { pendingOffer, incomingCall, pc: existingPc } = get();
@@ -372,7 +345,6 @@ export const useChatStore = create((set, get) => ({
     try {
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-
       socket.emit("webrtc-answer", {
         to: from,
         answer: { type: answer.type, sdp: answer.sdp },
@@ -389,19 +361,15 @@ export const useChatStore = create((set, get) => ({
       return;
     }
 
+    // ✅ callActive = true — receiver side par bhi lock ho gaya
     set({
-      pc,
-      localStream: stream,
-      isCalling: true,
-      incomingCall: null,
-      pendingOffer: null,
-      iceCandidateQueue: [],
-      callWith: from,
-      outgoingCall: null,
+      pc, localStream: stream,
+      isCalling: true, callActive: true,
+      incomingCall: null, pendingOffer: null,
+      iceCandidateQueue: [], callWith: from, outgoingCall: null,
     });
   },
 
-  /* ================= REJECT CALL ================= */
   rejectCall: () => {
     const socket = useAuthStore.getState().socket;
     const { incomingCall, pendingOffer, pc, localStream } = get();
@@ -412,13 +380,12 @@ export const useChatStore = create((set, get) => ({
     set({
       pc: null, localStream: null, remoteStream: null,
       incomingCall: null, pendingOffer: null, iceCandidateQueue: [],
-      outgoingCall: null, callWith: null, isCalling: false,
+      outgoingCall: null, callWith: null, isCalling: false, callActive: false,
     });
   },
 
   cancelOutgoingCall: () => get().endCall(true),
 
-  /* ================= END CALL ================= */
   endCall: (notify = true) => {
     const socket = useAuthStore.getState().socket;
     const { pc, localStream, callWith } = get();
@@ -428,7 +395,8 @@ export const useChatStore = create((set, get) => ({
     set({
       pc: null, localStream: null, remoteStream: null,
       incomingCall: null, pendingOffer: null, iceCandidateQueue: [],
-      outgoingCall: null, callWith: null, isCalling: false,
+      outgoingCall: null, callWith: null,
+      isCalling: false, callActive: false,
       isMicOn: true, isCameraOn: true,
     });
   },
@@ -447,6 +415,15 @@ export const useChatStore = create((set, get) => ({
 
   setSelectedUser: (u) => set({ selectedUser: u, messages: [] }),
 }));
+
+
+
+
+
+
+
+
+
 
 // import { create } from "zustand";
 // import { axiosInstance } from "../lib/axios";

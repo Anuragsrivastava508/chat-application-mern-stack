@@ -3,64 +3,46 @@ import { useChatStore } from "../store/useChatStore";
 
 const IncomingCallPopup = () => {
   const {
-    incomingCall,
-    pendingOffer,
-    acceptCall,
-    rejectCall,
-    isCalling,
-    users,
+    incomingCall, pendingOffer, acceptCall, rejectCall,
+    isCalling, callActive, users,
   } = useChatStore();
 
-  // ✅ FIX: hide when call started or no incoming
-  if (!incomingCall || isCalling) return null;
+  // ✅ Hide when call active or no incoming
+  if (!incomingCall || isCalling || callActive) return null;
 
-  const caller =
-    users.find((u) => u._id === incomingCall.from) || {};
+  const caller = users.find((u) => u._id === incomingCall.from) || {};
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40">
       <div className="bg-base-100 shadow-xl rounded-xl w-80 p-4 border border-base-300">
-
-        {/* HEADER */}
         <div className="flex items-center gap-3 mb-3">
           <div className="avatar">
             <div className="w-12 rounded-full">
               <img src={caller.profilePic || "/avatar.png"} alt="" />
             </div>
           </div>
-
           <div>
             <p className="font-semibold">{caller.fullName || "Unknown"}</p>
             <p className="text-sm text-base-content/70 flex items-center gap-1">
               {incomingCall.callType === "video" ? (
-                <>
-                  <Video className="w-4 h-4" /> Video call
-                </>
+                <><Video className="w-4 h-4" /> Video call</>
               ) : (
-                <>
-                  <Phone className="w-4 h-4" /> Audio call
-                </>
+                <><Phone className="w-4 h-4" /> Audio call</>
               )}
             </p>
           </div>
         </div>
 
-        {/* ACTIONS */}
         <div className="flex justify-between mt-4">
-          <button
-            onClick={rejectCall}
-            className="bg-red-500 text-white w-12 h-12 rounded-full flex items-center justify-center"
-          >
+          <button onClick={rejectCall}
+            className="bg-red-500 text-white w-12 h-12 rounded-full flex items-center justify-center">
             <X />
           </button>
-
-          <button
-            type="button"
+          <button type="button"
             disabled={!pendingOffer}
             onClick={() => acceptCall()}
             className="bg-green-500 text-white w-12 h-12 rounded-full flex items-center justify-center disabled:opacity-50"
-            title={pendingOffer ? "Accept" : "Connecting…"}
-          >
+            title={pendingOffer ? "Accept" : "Connecting…"}>
             <Phone />
           </button>
         </div>

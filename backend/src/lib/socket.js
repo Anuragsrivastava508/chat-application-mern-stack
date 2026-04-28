@@ -142,12 +142,8 @@ const io = new Server(server, {
   },
 });
 
-/* ================= USER → SOCKET MAP ================= */
 const userSocketMap = {};
-
-// ✅ FIX: Track active calls to prevent duplicate offers
-// Key: "callerUserId->receiverUserId", Value: true
-const activeOffers = new Map();
+const activeOffers = new Map(); // "callerId->receiverId"
 
 export function getReceiverSocketIds(userId) {
   return userSocketMap[userId];
@@ -155,36 +151,26 @@ export function getReceiverSocketIds(userId) {
 
 io.on("connection", (socket) => {
   console.log("🔥 Connected:", socket.id);
-
   const userId = socket.handshake.query.userId;
 
-  /* ================= ONLINE USERS ================= */
   if (userId) {
-    if (!userSocketMap[userId]) {
-      userSocketMap[userId] = new Set();
-    }
+    if (!userSocketMap[userId]) userSocketMap[userId] = new Set();
     userSocketMap[userId].add(socket.id);
   }
 
   io.emit("getOnlineUsers", Object.keys(userSocketMap));
 
-  /* ================= DISCONNECT ================= */
   socket.on("disconnect", () => {
     console.log("❌ Disconnected:", socket.id);
-
     if (userId && userSocketMap[userId]) {
       userSocketMap[userId].delete(socket.id);
-      if (userSocketMap[userId].size === 0) {
-        delete userSocketMap[userId];
-      }
+      if (userSocketMap[userId].size === 0) delete userSocketMap[userId];
     }
-
     io.emit("getOnlineUsers", Object.keys(userSocketMap));
   });
 
-  /* ================= CALL SIGNALING ================= */
+  /* ===== CALL SIGNALING ===== */
 
-  /* 🔔 RING */
   socket.on("call-user", ({ to, callType }) => {
     const sockets = userSocketMap[to];
     if (!sockets) return;
@@ -193,38 +179,29 @@ io.on("connection", (socket) => {
     });
   });
 
-  /* 🔴 END CALL */
   socket.on("end-call", ({ to }) => {
-    console.log("END CALL EVENT RECEIVED", to);
-
-    // ✅ FIX: Call khatam hone par offer track clear karo
-    const key1 = `${userId}->${to}`;
-    const key2 = `${to}->${userId}`;
-    activeOffers.delete(key1);
-    activeOffers.delete(key2);
+    console.log("END CALL:", userId, "->", to);
+    // ✅ Clear offer lock so next call works
+    activeOffers.delete(`${userId}->${to}`);
+    activeOffers.delete(`${to}->${userId}`);
 
     const sockets = userSocketMap[to];
-    if (!sockets) {
-      console.log("User sockets not found");
-      return;
-    }
-    sockets.forEach((id) => {
-      io.to(id).emit("call-ended");
-    });
+    if (!sockets) return;
+    sockets.forEach((id) => io.to(id).emit("call-ended"));
   });
 
-  /* ================= WEBRTC SIGNALING ================= */
+  /* ===== WEBRTC SIGNALING ===== */
 
   socket.on("webrtc-offer", ({ to, offer, callType }) => {
     const key = `${userId}->${to}`;
 
-    // ✅ FIX: Duplicate offer block karo — ek baar hi jaayega
+    // ✅ Block duplicate offers
     if (activeOffers.has(key)) {
       console.log(`[webrtc-offer] DUPLICATE BLOCKED: ${key}`);
       return;
     }
     activeOffers.set(key, true);
-    console.log(`[webrtc-offer] sent: ${key}`);
+    console.log(`[webrtc-offer] forwarded: ${key}`);
 
     const sockets = userSocketMap[to];
     if (!sockets) return;
