@@ -1,3 +1,129 @@
+// import { Server } from "socket.io";
+// import http from "http";
+// import express from "express";
+
+// const app = express();
+// const server = http.createServer(app);
+
+// const io = new Server(server, {
+//   cors: {
+//     origin: [
+//       "http://localhost:5173",
+//       "https://chatifys.onrender.com",
+//     ],
+//     methods: ["GET", "POST"],
+//     credentials: true,
+//   },
+// });
+
+// /* ================= USER → SOCKET MAP ================= */
+// const userSocketMap = {};
+
+// export function getReceiverSocketIds(userId) {
+//   return userSocketMap[userId];
+// }
+
+// io.on("connection", (socket) => {
+//   console.log("🔥 Connected:", socket.id);
+
+//   const userId = socket.handshake.query.userId;
+
+//   /* ================= ONLINE USERS ================= */
+//   if (userId) {
+//     if (!userSocketMap[userId]) {
+//       userSocketMap[userId] = new Set();
+//     }
+//     userSocketMap[userId].add(socket.id);
+//   }
+
+//   io.emit("getOnlineUsers", Object.keys(userSocketMap));
+
+//   /* ================= DISCONNECT ================= */
+//   socket.on("disconnect", () => {
+//     console.log("❌ Disconnected:", socket.id);
+
+//     if (userId && userSocketMap[userId]) {
+//       userSocketMap[userId].delete(socket.id);
+
+//       if (userSocketMap[userId].size === 0) {
+//         delete userSocketMap[userId];
+//       }
+//     }
+
+//     io.emit("getOnlineUsers", Object.keys(userSocketMap));
+//   });
+
+//   /* ================= CALL SIGNALING ================= */
+
+//   /* 🔔 RING */
+//   socket.on("call-user", ({ to, callType }) => {
+//     const sockets = userSocketMap[to];
+//     if (!sockets) return;
+
+//     sockets.forEach((id) => {
+//       io.to(id).emit("incoming-call", {
+//         from: userId,
+//         callType,
+//       });
+//     });
+//   });
+
+//   /* 🔴 END CALL (ONLY OTHER SIDE) */
+// socket.on("end-call", ({ to }) => {
+//   console.log("END CALL EVENT RECEIVED", to);
+
+//   const sockets = userSocketMap[to];
+//   if (!sockets) {
+//     console.log("User sockets not found");
+//     return;
+//   }
+
+//   sockets.forEach((id) => {
+//     io.to(id).emit("call-ended");
+//   });
+// });
+//   /* ================= WEBRTC SIGNALING ================= */
+
+//   socket.on("webrtc-offer", ({ to, offer, callType }) => {
+//     const sockets = userSocketMap[to];
+//     if (!sockets) return;
+
+//     sockets.forEach((id) => {
+//       io.to(id).emit("webrtc-offer", {
+//         from: userId,
+//         offer,
+//         callType,
+//       });
+//     });
+//   });
+
+//   socket.on("webrtc-answer", ({ to, answer }) => {
+//     const sockets = userSocketMap[to];
+//     if (!sockets) return;
+
+//     sockets.forEach((id) => {
+//       io.to(id).emit("webrtc-answer", {
+//         from: userId,
+//         answer,
+//       });
+//     });
+//   });
+
+//   socket.on("webrtc-ice", ({ to, candidate }) => {
+//     const sockets = userSocketMap[to];
+//     if (!sockets) return;
+
+//     sockets.forEach((id) => {
+//       io.to(id).emit("webrtc-ice", {
+//         from: userId,
+//         candidate,
+//       });
+//     });
+//   });
+// });
+
+// export { io, app, server };
+
 import { Server } from "socket.io";
 import http from "http";
 import express from "express";
@@ -18,6 +144,10 @@ const io = new Server(server, {
 
 /* ================= USER → SOCKET MAP ================= */
 const userSocketMap = {};
+
+// ✅ FIX: Track active calls to prevent duplicate offers
+// Key: "callerUserId->receiverUserId", Value: true
+const activeOffers = new Map();
 
 export function getReceiverSocketIds(userId) {
   return userSocketMap[userId];
@@ -44,7 +174,6 @@ io.on("connection", (socket) => {
 
     if (userId && userSocketMap[userId]) {
       userSocketMap[userId].delete(socket.id);
-
       if (userSocketMap[userId].size === 0) {
         delete userSocketMap[userId];
       }
@@ -59,68 +188,66 @@ io.on("connection", (socket) => {
   socket.on("call-user", ({ to, callType }) => {
     const sockets = userSocketMap[to];
     if (!sockets) return;
-
     sockets.forEach((id) => {
-      io.to(id).emit("incoming-call", {
-        from: userId,
-        callType,
-      });
+      io.to(id).emit("incoming-call", { from: userId, callType });
     });
   });
 
-  /* 🔴 END CALL (ONLY OTHER SIDE) */
-socket.on("end-call", ({ to }) => {
-  console.log("END CALL EVENT RECEIVED", to);
+  /* 🔴 END CALL */
+  socket.on("end-call", ({ to }) => {
+    console.log("END CALL EVENT RECEIVED", to);
 
-  const sockets = userSocketMap[to];
-  if (!sockets) {
-    console.log("User sockets not found");
-    return;
-  }
+    // ✅ FIX: Call khatam hone par offer track clear karo
+    const key1 = `${userId}->${to}`;
+    const key2 = `${to}->${userId}`;
+    activeOffers.delete(key1);
+    activeOffers.delete(key2);
 
-  sockets.forEach((id) => {
-    io.to(id).emit("call-ended");
+    const sockets = userSocketMap[to];
+    if (!sockets) {
+      console.log("User sockets not found");
+      return;
+    }
+    sockets.forEach((id) => {
+      io.to(id).emit("call-ended");
+    });
   });
-});
+
   /* ================= WEBRTC SIGNALING ================= */
 
   socket.on("webrtc-offer", ({ to, offer, callType }) => {
+    const key = `${userId}->${to}`;
+
+    // ✅ FIX: Duplicate offer block karo — ek baar hi jaayega
+    if (activeOffers.has(key)) {
+      console.log(`[webrtc-offer] DUPLICATE BLOCKED: ${key}`);
+      return;
+    }
+    activeOffers.set(key, true);
+    console.log(`[webrtc-offer] sent: ${key}`);
+
     const sockets = userSocketMap[to];
     if (!sockets) return;
-
     sockets.forEach((id) => {
-      io.to(id).emit("webrtc-offer", {
-        from: userId,
-        offer,
-        callType,
-      });
+      io.to(id).emit("webrtc-offer", { from: userId, offer, callType });
     });
   });
 
   socket.on("webrtc-answer", ({ to, answer }) => {
     const sockets = userSocketMap[to];
     if (!sockets) return;
-
     sockets.forEach((id) => {
-      io.to(id).emit("webrtc-answer", {
-        from: userId,
-        answer,
-      });
+      io.to(id).emit("webrtc-answer", { from: userId, answer });
     });
   });
 
   socket.on("webrtc-ice", ({ to, candidate }) => {
     const sockets = userSocketMap[to];
     if (!sockets) return;
-
     sockets.forEach((id) => {
-      io.to(id).emit("webrtc-ice", {
-        from: userId,
-        candidate,
-      });
+      io.to(id).emit("webrtc-ice", { from: userId, candidate });
     });
   });
 });
 
 export { io, app, server };
-
