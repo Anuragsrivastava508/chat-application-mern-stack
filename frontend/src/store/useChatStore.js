@@ -169,10 +169,20 @@ export const useChatStore = create((set, get) => ({
     socket.on("webrtc-offer", async ({ from, offer, callType }) => {
       const resolvedType = callType || "video";
 
-      // ✅ FIX: Already connected — duplicate offer ignore karo
       const prev = get();
+
+      // ✅ FIX: Ignore duplicate offers if already connected or connecting
       if (prev.isCalling) {
-        console.log("[webrtc-offer] ignored — already in call");
+        console.log("[webrtc-offer] ignored — isCalling true");
+        return;
+      }
+      if (prev.pc && (prev.pc.connectionState === "connected" || prev.pc.connectionState === "connecting")) {
+        console.log("[webrtc-offer] ignored — pc already", prev.pc.connectionState);
+        return;
+      }
+      // ✅ FIX: Same caller sending duplicate offer — ignore
+      if (prev.pendingOffer && prev.pendingOffer.from === from) {
+        console.log("[webrtc-offer] ignored — same caller duplicate");
         return;
       }
 
