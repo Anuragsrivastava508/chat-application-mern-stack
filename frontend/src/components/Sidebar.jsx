@@ -673,21 +673,6 @@ export default Sidebar;
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // import { useEffect, useState } from "react";
 // import { useChatStore } from "../store/useChatStore";
 // import { useAuthStore } from "../store/useAuthStore";
@@ -1106,6 +1091,3 @@ export default Sidebar;
 // };
 
 // export default Sidebar;
-
-
-
