@@ -57,8 +57,6 @@ const OutgoingCallPopup = () => {
 export default OutgoingCallPopup;
 
 
-
-// import { Phone, Video, X } from "lucide-react";
 // import { useChatStore } from "../store/useChatStore";
 
 // const OutgoingCallPopup = () => {
