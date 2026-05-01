@@ -1,23 +1,42 @@
-import { useEffect, useState } from "react";
+
+import { useEffect, useState, useRef } from "react";
 import { useChatStore } from "../store/useChatStore";
 import { useAuthStore } from "../store/useAuthStore";
 import { useThemeStore } from "../store/useThemeStore";
 import SidebarSkeleton from "./skeletons/SidebarSkeleton";
 import {
-  Search, Camera, EllipsisVertical, MessageSquare, Users,
-  Phone, Settings, LogOut, User, Sun, Moon, ArrowLeft, Palette,
+  Search, MessageSquare, Users, Phone, Settings,
+  Palette, ChevronRight, Bell, Shield, Mic,
+  Pin, Video, PhoneCall, PhoneMissed, Star, Plus,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { useChatStore as useCallStore } from "../store/useChatStore";
+
+function useStagger(count, delay = 35) {
+  const [visible, setVisible] = useState([]);
+  useEffect(() => {
+    setVisible([]);
+    Array.from({ length: count }).forEach((_, i) => {
+      setTimeout(() => setVisible((v) => [...v, i]), i * delay);
+    });
+  }, [count]);
+  return visible;
+}
 
 const Sidebar = ({ onSelectUser }) => {
-  const { getUsers, users, selectedUser, setSelectedUser, isUsersLoading } = useChatStore();
+  const { getUsers, users, selectedUser, setSelectedUser, isUsersLoading, startCall } = useChatStore();
   const { onlineUsers, authUser, logout } = useAuthStore();
-  const { theme, setTheme } = useThemeStore();
+  const { theme } = useThemeStore();
   const navigate = useNavigate();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("chats");
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [pinnedIds, setPinnedIds] = useState([]);
+  const [longPressUser, setLongPressUser] = useState(null);
+  const inputRef = useRef(null);
+  const longPressTimer = useRef(null);
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth <= 768);
@@ -30,260 +49,615 @@ const Sidebar = ({ onSelectUser }) => {
   const filteredUsers = users.filter((u) =>
     u.fullName?.toLowerCase().includes(searchQuery.toLowerCase())
   );
+  const pinnedUsers = filteredUsers.filter((u) => pinnedIds.includes(u._id));
+  const regularUsers = filteredUsers.filter((u) => !pinnedIds.includes(u._id));
+  const onlineUsers2 = users.filter((u) => onlineUsers.includes(u._id) && u._id !== authUser?._id);
+  const onlineCount = onlineUsers2.length;
+  const visibleCount = pinnedUsers.length + regularUsers.length;
+  const visibleItems = useStagger(visibleCount, 35);
+
+  const togglePin = (id) => {
+    setPinnedIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+    setLongPressUser(null);
+  };
+
+  const handleLongPress = (id) => {
+    longPressTimer.current = setTimeout(() => setLongPressUser(id), 500);
+  };
+  const cancelLongPress = () => clearTimeout(longPressTimer.current);
 
   if (isUsersLoading) return <SidebarSkeleton />;
 
-  /* ==================== MOBILE ==================== */
+  /* ═══════════════════════ MOBILE ═══════════════════════ */
   if (isMobile) {
-    return (
-      <div className="h-full w-full flex flex-col bg-[#111b21] text-white overflow-hidden">
+    const isDark = theme === "dark";
+    const bg         = isDark ? "rgba(18,18,22,1)"       : "rgba(242,242,247,1)";
+    const cardBg     = isDark ? "rgba(30,30,38,0.95)"    : "rgba(255,255,255,0.9)";
+    const cardBorder = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)";
+    const textPri    = isDark ? "#f2f2f7"                : "#1c1c1e";
+    const textSec    = isDark ? "rgba(235,235,245,0.45)" : "rgba(60,60,67,0.45)";
+    const textTer    = isDark ? "rgba(235,235,245,0.25)" : "rgba(60,60,67,0.25)";
+    const accent     = "#0a84ff";
+    const green      = "#30d158";
+    const red        = "#ff375f";
+    const searchBg   = isDark ? "rgba(118,118,128,0.22)" : "rgba(118,118,128,0.12)";
 
-        {/* TOP HEADER */}
-        <div className="flex items-center justify-between px-4 pt-12 pb-3 flex-shrink-0">
-          <h1 className="text-2xl font-bold">
-            {activeTab === "chats" && "Chatty"}
-            {activeTab === "settings" && "Settings"}
-            {activeTab === "calls" && "Calls"}
-            {activeTab === "communities" && "Communities"}
-          </h1>
-          {activeTab === "chats" && (
-            <div className="flex items-center gap-1">
-              <button className="p-2 rounded-full">
-                <Camera className="w-5 h-5 text-white/80" />
+    const settingsItems = [
+      { icon: Palette, label: "Appearance",    sub: "Themes & display",   color: "#bf5af2", ibg: "rgba(191,90,242,0.18)", action: () => navigate("/settings") },
+      { icon: Bell,    label: "Notifications", sub: "Sounds & alerts",    color: "#ff375f", ibg: "rgba(255,55,95,0.15)",  action: () => {} },
+      { icon: Shield,  label: "Privacy",       sub: "Security & blocked", color: "#ffd60a", ibg: "rgba(255,214,10,0.15)", action: () => {} },
+      { icon: Mic,     label: "Media",         sub: "Storage & data",     color: "#0a84ff", ibg: "rgba(10,132,255,0.15)", action: () => {} },
+    ];
+
+    /* fake call history */
+    const fakeCallHistory = users.slice(0, 4).map((u, i) => ({
+      user: u,
+      type: ["incoming", "outgoing", "missed", "video"][i % 4],
+      time: ["Just now", "2h ago", "Yesterday", "Mon"][i % 4],
+    }));
+
+    const CallIcon = ({ type }) => {
+      if (type === "missed")   return <PhoneMissed size={16} style={{ color: red }} />;
+      if (type === "video")    return <Video size={16} style={{ color: accent }} />;
+      if (type === "incoming") return <PhoneCall size={16} style={{ color: green }} />;
+      return <Phone size={16} style={{ color: accent }} />;
+    };
+
+    /* render a single contact row */
+    const ContactRow = ({ user, rowIdx, isPinned }) => {
+      const isOnline   = onlineUsers.includes(user._id);
+      const isSelected = selectedUser?._id === user._id;
+      const isVisible  = visibleItems.includes(rowIdx);
+      const showMenu   = longPressUser === user._id;
+
+      return (
+        <div key={user._id} style={{ position: "relative" }}>
+          {/* Context menu on long press */}
+          {showMenu && (
+            <div style={{
+              position: "absolute", top: "0", right: "16px", zIndex: 99,
+              background: isDark ? "rgba(44,44,52,0.97)" : "rgba(255,255,255,0.97)",
+              borderRadius: "14px", padding: "6px 0", minWidth: "160px",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
+              border: `1px solid ${cardBorder}`,
+              backdropFilter: "blur(20px)",
+            }}>
+              <button onClick={() => togglePin(user._id)} style={{
+                width: "100%", padding: "10px 16px", display: "flex", alignItems: "center",
+                gap: "10px", background: "transparent", border: "none", cursor: "pointer",
+                color: textPri, fontSize: "15px",
+              }}>
+                <Pin size={16} style={{ color: accent }} />
+                {pinnedIds.includes(user._id) ? "Unpin Chat" : "Pin Chat"}
               </button>
-              <button className="p-2 rounded-full hover:bg-white/10 transition-colors">
-                <EllipsisVertical className="w-5 h-5 text-white/80" />
+              <div style={{ height: "1px", background: cardBorder, margin: "2px 0" }} />
+              <button onClick={() => { setSelectedUser(user); onSelectUser?.(); setLongPressUser(null); }} style={{
+                width: "100%", padding: "10px 16px", display: "flex", alignItems: "center",
+                gap: "10px", background: "transparent", border: "none", cursor: "pointer",
+                color: textPri, fontSize: "15px",
+              }}>
+                <MessageSquare size={16} style={{ color: green }} />
+                Open Chat
+              </button>
+              <div style={{ height: "1px", background: cardBorder, margin: "2px 0" }} />
+              <button onClick={() => setLongPressUser(null)} style={{
+                width: "100%", padding: "10px 16px", background: "transparent",
+                border: "none", cursor: "pointer", color: red, fontSize: "15px",
+              }}>
+                Cancel
               </button>
             </div>
           )}
+
+          <button
+            onMouseDown={() => handleLongPress(user._id)}
+            onMouseUp={cancelLongPress}
+            onTouchStart={() => handleLongPress(user._id)}
+            onTouchEnd={cancelLongPress}
+            onClick={() => { if (!showMenu) { setSelectedUser(user); onSelectUser?.(); } }}
+            style={{
+              width: "100%", display: "flex", alignItems: "center", gap: "13px",
+              padding: "11px 14px", textAlign: "left", cursor: "pointer",
+              background: isSelected
+                ? isDark ? "rgba(10,132,255,0.14)" : "rgba(10,132,255,0.08)"
+                : "transparent",
+              opacity: isVisible ? 1 : 0,
+              transform: isVisible ? "translateY(0)" : "translateY(8px)",
+              transition: "opacity 0.25s ease, transform 0.25s ease, background 0.15s",
+            }}
+          >
+            <div style={{ position: "relative", flexShrink: 0 }}>
+              <img src={user.profilePic || "/avatar.png"} alt={user.fullName}
+                style={{ width: "48px", height: "48px", borderRadius: "50%", objectFit: "cover" }} />
+              {isOnline && (
+                <span style={{
+                  position: "absolute", bottom: "1px", right: "1px",
+                  width: "12px", height: "12px", borderRadius: "50%",
+                  background: green, border: `2px solid ${cardBg}`,
+                }} />
+              )}
+              {isPinned && (
+                <span style={{
+                  position: "absolute", top: "-2px", right: "-2px",
+                  width: "16px", height: "16px", borderRadius: "50%",
+                  background: accent, display: "flex", alignItems: "center", justifyContent: "center",
+                  border: `2px solid ${bg}`,
+                }}>
+                  <Pin size={8} style={{ color: "white" }} />
+                </span>
+              )}
+            </div>
+
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "6px" }}>
+                <span style={{ fontSize: "16px", fontWeight: "600", color: textPri, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {user.fullName}
+                </span>
+                <span style={{ fontSize: "12px", color: textTer, flexShrink: 0 }}>Yesterday</span>
+              </div>
+              <p style={{
+                fontSize: "13px", marginTop: "2px",
+                color: isOnline ? green : textSec,
+                fontWeight: isOnline ? "500" : "400",
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}>
+                {isOnline ? "● Active now" : "Tap to message"}
+              </p>
+            </div>
+            <ChevronRight size={14} style={{ color: textTer, flexShrink: 0 }} />
+          </button>
         </div>
+      );
+    };
 
-        {/* CONTENT */}
-        <div className="flex-1 overflow-y-auto min-h-0">
+    return (
+      <div style={{
+        height: "100%", width: "100%", display: "flex", flexDirection: "column",
+        background: bg, color: textPri, overflow: "hidden", position: "relative",
+        fontFamily: "-apple-system, 'SF Pro Display', 'Helvetica Neue', sans-serif",
+      }}>
 
-          {/* ===== CHATS TAB ===== */}
+        {/* Tap outside to close context menu */}
+        {longPressUser && (
+          <div onClick={() => setLongPressUser(null)} style={{
+            position: "absolute", inset: 0, zIndex: 50,
+          }} />
+        )}
+
+        {/* ── HEADER ── */}
+        <div style={{ padding: "52px 20px 12px", flexShrink: 0, zIndex: 2, position: "relative" }}>
           {activeTab === "chats" && (
             <>
-              <div className="px-3 pb-2">
-                <div className="flex items-center gap-3 bg-[#202c33] rounded-xl px-4 py-2.5">
-                  <Search className="w-4 h-4 text-[#8696a0] flex-shrink-0" />
-                  <input
-                    type="text"
-                    placeholder="Ask Meta AI or Search"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="bg-transparent outline-none text-sm flex-1 text-white placeholder:text-[#8696a0]"
-                  />
+              <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: "14px" }}>
+                <div>
+                  <p style={{ fontSize: "12px", fontWeight: "700", color: accent, letterSpacing: "0.5px", marginBottom: "1px" }}>
+                    {onlineCount > 0 ? `${onlineCount} active` : "Messages"}
+                  </p>
+                  <h1 style={{ fontSize: "34px", fontWeight: "800", letterSpacing: "-1.2px", lineHeight: 1, color: textPri }}>
+                    Chatty
+                  </h1>
+                </div>
+                <button onClick={() => setActiveTab("settings")} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, position: "relative" }}>
+                  <img src={authUser?.profilePic || "/avatar.png"} alt="" style={{
+                    width: "38px", height: "38px", borderRadius: "50%", objectFit: "cover",
+                    boxShadow: `0 0 0 2.5px ${accent}`,
+                  }} />
+                  <span style={{
+                    position: "absolute", bottom: 0, right: 0,
+                    width: "11px", height: "11px", borderRadius: "50%",
+                    background: green, border: `2px solid ${bg}`,
+                  }} />
+                </button>
+              </div>
+
+              {/* Search */}
+              <div onClick={() => inputRef.current?.focus()} style={{
+                display: "flex", alignItems: "center", gap: "8px",
+                background: searchBg, borderRadius: "12px", padding: "9px 12px",
+                border: searchFocused ? `1.5px solid ${accent}` : "1.5px solid transparent",
+                transition: "border 0.2s",
+              }}>
+                <Search size={15} style={{ color: textSec, flexShrink: 0 }} />
+                <input ref={inputRef} type="text" placeholder="Search"
+                  value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                  onFocus={() => setSearchFocused(true)} onBlur={() => setSearchFocused(false)}
+                  style={{ background: "transparent", border: "none", outline: "none", color: textPri, fontSize: "16px", flex: 1, fontFamily: "inherit" }} />
+                {searchQuery && (
+                  <button onClick={() => setSearchQuery("")} style={{
+                    background: textTer, border: "none", borderRadius: "50%",
+                    width: "16px", height: "16px", cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                    <span style={{ color: bg, fontSize: "10px", fontWeight: "800" }}>✕</span>
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+          {activeTab === "calls"       && <h1 style={{ fontSize: "34px", fontWeight: "800", letterSpacing: "-1.2px", color: textPri }}>Recents</h1>}
+          {activeTab === "communities" && <h1 style={{ fontSize: "34px", fontWeight: "800", letterSpacing: "-1.2px", color: textPri }}>People</h1>}
+          {activeTab === "settings"    && <h1 style={{ fontSize: "34px", fontWeight: "800", letterSpacing: "-1.2px", color: textPri }}>Settings</h1>}
+        </div>
+
+        {/* ── SCROLLABLE CONTENT ── */}
+        <div style={{ flex: 1, overflowY: "auto", minHeight: 0, position: "relative", zIndex: 1 }}>
+
+          {/* ════ CHATS TAB ════ */}
+          {activeTab === "chats" && (
+            <div style={{ paddingBottom: "16px" }}>
+
+              {/* ── STATUS / ACTIVE NOW ROW ── */}
+              {onlineUsers2.length > 0 && !searchQuery && (
+                <div style={{ marginBottom: "6px" }}>
+                  <p style={{ fontSize: "12px", fontWeight: "600", color: textTer, letterSpacing: "0.6px", textTransform: "uppercase", padding: "0 20px 6px" }}>
+                    Active Now
+                  </p>
+                  <div style={{ overflowX: "auto", display: "flex", gap: "16px", padding: "0 16px 10px", scrollbarWidth: "none" }}>
+                    {/* My status */}
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "5px", flexShrink: 0 }}>
+                      <div style={{ position: "relative" }}>
+                        <img src={authUser?.profilePic || "/avatar.png"} alt=""
+                          style={{ width: "54px", height: "54px", borderRadius: "50%", objectFit: "cover", border: `2px solid ${cardBorder}` }} />
+                        <div style={{
+                          position: "absolute", bottom: 0, right: 0,
+                          width: "20px", height: "20px", borderRadius: "50%",
+                          background: accent, border: `2px solid ${bg}`,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                        }}>
+                          <Plus size={12} style={{ color: "white" }} />
+                        </div>
+                      </div>
+                      <span style={{ fontSize: "11px", color: textSec, fontWeight: "500" }}>My Status</span>
+                    </div>
+
+                    {/* Online users */}
+                    {onlineUsers2.slice(0, 8).map((user) => (
+                      <button key={user._id} onClick={() => { setSelectedUser(user); onSelectUser?.(); }}
+                        style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "5px", flexShrink: 0, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                        <div style={{ position: "relative" }}>
+                          <img src={user.profilePic || "/avatar.png"} alt={user.fullName}
+                            style={{ width: "54px", height: "54px", borderRadius: "50%", objectFit: "cover", border: `2.5px solid ${green}` }} />
+                          <span style={{
+                            position: "absolute", bottom: "1px", right: "1px",
+                            width: "12px", height: "12px", borderRadius: "50%",
+                            background: green, border: `2px solid ${bg}`,
+                          }} />
+                        </div>
+                        <span style={{ fontSize: "11px", color: textSec, fontWeight: "500", maxWidth: "56px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {user.fullName.split(" ")[0]}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── PINNED CHATS ── */}
+              {pinnedUsers.length > 0 && (
+                <div style={{ margin: "0 16px 8px" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
+                    <p style={{ fontSize: "12px", fontWeight: "600", color: textTer, letterSpacing: "0.6px", textTransform: "uppercase" }}>📌 Pinned</p>
+                  </div>
+                  <div style={{
+                    background: cardBg, borderRadius: "16px", overflow: "hidden",
+                    border: `1px solid ${cardBorder}`,
+                    backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+                    boxShadow: isDark ? "0 4px 20px rgba(0,0,0,0.35)" : "0 2px 14px rgba(0,0,0,0.07)",
+                  }}>
+                    {pinnedUsers.map((user, i) => (
+                      <div key={user._id} style={{ borderBottom: i < pinnedUsers.length - 1 ? `1px solid ${cardBorder}` : "none" }}>
+                        <ContactRow user={user} rowIdx={i} isPinned />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── ALL CHATS ── */}
+              <div style={{ margin: "0 16px" }}>
+                {regularUsers.length > 0 && (
+                  <p style={{ fontSize: "12px", fontWeight: "600", color: textTer, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: "6px" }}>
+                    {pinnedUsers.length > 0 ? "All Chats" : "Recent"}
+                  </p>
+                )}
+
+                {filteredUsers.length === 0 && (
+                  <div style={{ textAlign: "center", padding: "60px 0" }}>
+                    <div style={{ fontSize: "48px", marginBottom: "12px" }}>🔍</div>
+                    <p style={{ color: textSec, fontSize: "15px", fontWeight: "500" }}>No results for "{searchQuery}"</p>
+                  </div>
+                )}
+
+                <div style={{
+                  background: cardBg, borderRadius: "16px", overflow: "hidden",
+                  border: `1px solid ${cardBorder}`,
+                  backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+                  boxShadow: isDark ? "0 4px 24px rgba(0,0,0,0.35)" : "0 2px 16px rgba(0,0,0,0.07)",
+                }}>
+                  {regularUsers.map((user, i) => (
+                    <div key={user._id} style={{ borderBottom: i < regularUsers.length - 1 ? `1px solid ${cardBorder}` : "none" }}>
+                      <ContactRow user={user} rowIdx={pinnedUsers.length + i} isPinned={false} />
+                    </div>
+                  ))}
                 </div>
               </div>
 
-              {filteredUsers.map((user) => {
-                const isOnline = onlineUsers.includes(user._id);
-                const isSelected = selectedUser?._id === user._id;
-                return (
-                  <button
-                    key={user._id}
-                    onClick={() => { setSelectedUser(user); onSelectUser?.(); }}
-                    className={`w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left
-                      ${isSelected ? "bg-[#2a3942]" : "hover:bg-[#202c33]"}`}
-                  >
-                    <div className="relative flex-shrink-0">
-                      <img src={user.profilePic || "/avatar.png"} alt={user.fullName}
-                        className="w-12 h-12 rounded-full object-cover" />
-                      {isOnline && (
-                        <span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-[#111b21]" />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0 border-b border-[#202c33] pb-2.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium text-[15px] truncate">{user.fullName}</span>
-                        <span className="text-xs text-[#8696a0] flex-shrink-0">Yesterday</span>
-                      </div>
-                      <p className="text-sm text-[#8696a0] truncate mt-0.5">
-                        {isOnline ? "Online" : "Tap to chat"}
-                      </p>
-                    </div>
-                  </button>
-                );
-              })}
-
-              {filteredUsers.length === 0 && (
-                <p className="text-center text-[#8696a0] py-10 text-sm">No contacts found</p>
+              {/* Hint */}
+              {filteredUsers.length > 0 && !searchQuery && (
+                <p style={{ textAlign: "center", color: textTer, fontSize: "12px", marginTop: "16px" }}>
+                  Hold a chat to pin it 📌
+                </p>
               )}
-            </>
+            </div>
           )}
 
-          {/* ===== CALLS TAB ===== */}
+          {/* ════ CALLS TAB ════ */}
           {activeTab === "calls" && (
-            <div className="flex flex-col items-center justify-center h-48 gap-3 text-[#8696a0]">
-              <Phone className="w-12 h-12 opacity-20" />
-              <p className="text-sm">No recent calls</p>
+            <div style={{ padding: "0 16px 16px" }}>
+              {fakeCallHistory.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "80px 20px" }}>
+                  <div style={{ fontSize: "52px", marginBottom: "12px" }}>📵</div>
+                  <p style={{ color: textSec, fontSize: "16px", fontWeight: "500" }}>No Recent Calls</p>
+                </div>
+              ) : (
+                <>
+                  <p style={{ fontSize: "12px", fontWeight: "600", color: textTer, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: "8px" }}>Recent</p>
+                  <div style={{
+                    background: cardBg, borderRadius: "16px", overflow: "hidden",
+                    border: `1px solid ${cardBorder}`,
+                    backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+                    boxShadow: isDark ? "0 4px 20px rgba(0,0,0,0.3)" : "0 2px 14px rgba(0,0,0,0.07)",
+                  }}>
+                    {fakeCallHistory.map((call, i) => (
+                      <div key={call.user._id} style={{ borderBottom: i < fakeCallHistory.length - 1 ? `1px solid ${cardBorder}` : "none" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "13px", padding: "13px 16px" }}>
+                          <img src={call.user.profilePic || "/avatar.png"} alt=""
+                            style={{ width: "46px", height: "46px", borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <p style={{ fontSize: "16px", fontWeight: "600", color: call.type === "missed" ? red : textPri, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {call.user.fullName}
+                            </p>
+                            <div style={{ display: "flex", alignItems: "center", gap: "5px", marginTop: "2px" }}>
+                              <CallIcon type={call.type} />
+                              <span style={{ fontSize: "13px", color: call.type === "missed" ? red : textSec, fontWeight: "400" }}>
+                                {call.type.charAt(0).toUpperCase() + call.type.slice(1)} · {call.time}
+                              </span>
+                            </div>
+                          </div>
+                          {/* Callback buttons */}
+                          <div style={{ display: "flex", gap: "8px", flexShrink: 0 }}>
+                            <button onClick={() => { setSelectedUser(call.user); startCall("audio"); }} style={{
+                              width: "34px", height: "34px", borderRadius: "50%",
+                              background: isDark ? "rgba(10,132,255,0.2)" : "rgba(10,132,255,0.1)",
+                              border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                            }}>
+                              <Phone size={16} style={{ color: accent }} />
+                            </button>
+                            <button onClick={() => { setSelectedUser(call.user); startCall("video"); }} style={{
+                              width: "34px", height: "34px", borderRadius: "50%",
+                              background: isDark ? "rgba(48,209,88,0.2)" : "rgba(48,209,88,0.1)",
+                              border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                            }}>
+                              <Video size={16} style={{ color: green }} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
-          {/* ===== COMMUNITIES TAB ===== */}
+          {/* ════ COMMUNITIES TAB ════ */}
           {activeTab === "communities" && (
-            <div className="flex flex-col items-center justify-center h-48 gap-3 text-[#8696a0]">
-              <Users className="w-12 h-12 opacity-20" />
-              <p className="text-sm">No communities yet</p>
+            <div style={{ padding: "0 16px 16px" }}>
+              {/* Online people horizontal */}
+              {onlineUsers2.length > 0 && (
+                <div style={{ marginBottom: "16px" }}>
+                  <p style={{ fontSize: "12px", fontWeight: "600", color: textTer, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: "8px" }}>
+                    Active Now
+                  </p>
+                  <div style={{ overflowX: "auto", display: "flex", gap: "12px", paddingBottom: "4px", scrollbarWidth: "none" }}>
+                    {onlineUsers2.map((user) => (
+                      <button key={user._id} onClick={() => { setSelectedUser(user); onSelectUser?.(); }}
+                        style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", flexShrink: 0, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                        <div style={{ position: "relative" }}>
+                          <img src={user.profilePic || "/avatar.png"} alt=""
+                            style={{ width: "60px", height: "60px", borderRadius: "18px", objectFit: "cover", border: `2px solid ${green}` }} />
+                          <span style={{ position: "absolute", bottom: "2px", right: "2px", width: "12px", height: "12px", borderRadius: "50%", background: green, border: `2px solid ${bg}` }} />
+                        </div>
+                        <span style={{ fontSize: "11px", color: textSec, fontWeight: "600", maxWidth: "64px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {user.fullName.split(" ")[0]}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* All contacts grid */}
+              <p style={{ fontSize: "12px", fontWeight: "600", color: textTer, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: "8px" }}>
+                All Contacts
+              </p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
+                {users.map((user) => {
+                  const isOnline = onlineUsers.includes(user._id);
+                  return (
+                    <button key={user._id} onClick={() => { setSelectedUser(user); onSelectUser?.(); }} style={{
+                      display: "flex", flexDirection: "column", alignItems: "center", gap: "6px",
+                      padding: "14px 8px", borderRadius: "16px",
+                      background: cardBg, border: `1px solid ${cardBorder}`,
+                      cursor: "pointer", backdropFilter: "blur(20px)",
+                    }}>
+                      <div style={{ position: "relative" }}>
+                        <img src={user.profilePic || "/avatar.png"} alt=""
+                          style={{ width: "48px", height: "48px", borderRadius: "50%", objectFit: "cover" }} />
+                        {isOnline && <span style={{ position: "absolute", bottom: "1px", right: "1px", width: "11px", height: "11px", borderRadius: "50%", background: green, border: `2px solid ${cardBg}` }} />}
+                      </div>
+                      <span style={{ fontSize: "12px", fontWeight: "600", color: textPri, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", width: "100%" }}>
+                        {user.fullName.split(" ")[0]}
+                      </span>
+                      <span style={{ fontSize: "10px", color: isOnline ? green : textTer, fontWeight: "500" }}>
+                        {isOnline ? "Active" : "Offline"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
 
-          {/* ===== SETTINGS TAB ===== */}
+          {/* ════ SETTINGS TAB ════ */}
           {activeTab === "settings" && (
-            <div className="flex flex-col">
+            <div style={{ padding: "0 16px 48px" }}>
 
-              {/* Profile card — tap karo profile edit ke liye */}
-              <button
-                onClick={() => navigate("/profile")}
-                className="flex items-center gap-4 px-5 py-4 hover:bg-[#202c33] transition-colors border-b border-[#202c33] text-left w-full"
-              >
-                <img src={authUser?.profilePic || "/avatar.png"} alt=""
-                  className="w-16 h-16 rounded-full object-cover flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-white text-base">{authUser?.fullName}</p>
-                  <p className="text-sm text-[#8696a0] truncate">{authUser?.email}</p>
-                  <p className="text-xs text-emerald-400 mt-0.5">Edit profile →</p>
+              {/* Profile hero */}
+              <button onClick={() => navigate("/profile")} style={{
+                width: "100%", display: "flex", alignItems: "center", gap: "14px",
+                padding: "16px", borderRadius: "18px", marginBottom: "10px",
+                background: cardBg, border: `1px solid ${cardBorder}`,
+                cursor: "pointer", textAlign: "left",
+                backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+                boxShadow: isDark ? "0 4px 20px rgba(0,0,0,0.35)" : "0 2px 12px rgba(0,0,0,0.07)",
+              }}>
+                <div style={{ position: "relative", flexShrink: 0 }}>
+                  <img src={authUser?.profilePic || "/avatar.png"} alt="" style={{
+                    width: "64px", height: "64px", borderRadius: "50%", objectFit: "cover",
+                  }} />
+                  <span style={{ position: "absolute", bottom: "2px", right: "2px", width: "14px", height: "14px", borderRadius: "50%", background: green, border: `2.5px solid ${cardBg}` }} />
                 </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: "18px", fontWeight: "700", color: textPri, letterSpacing: "-0.3px" }}>{authUser?.fullName}</p>
+                  <p style={{ fontSize: "13px", color: textSec, marginTop: "1px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{authUser?.email}</p>
+                  <p style={{ fontSize: "12px", color: accent, fontWeight: "600", marginTop: "4px" }}>Edit Profile →</p>
+                </div>
+                <ChevronRight size={16} style={{ color: textTer }} />
               </button>
 
-              {/* Theme toggle */}
-              <button
-                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                className="w-full flex items-center gap-4 px-5 py-4 hover:bg-[#202c33] transition-colors"
-              >
-                <div className="w-10 h-10 rounded-full bg-yellow-500/20 flex items-center justify-center flex-shrink-0">
-                  {theme === "dark"
-                    ? <Sun className="w-5 h-5 text-yellow-400" />
-                    : <Moon className="w-5 h-5 text-yellow-400" />}
-                </div>
-                <div className="flex-1 text-left">
-                  <p className="text-white text-sm font-medium">
-                    {theme === "dark" ? "Switch to Light" : "Switch to Dark"}
-                  </p>
-                  <p className="text-[#8696a0] text-xs">Current: {theme} theme</p>
-                </div>
-                {/* Toggle switch */}
-                <div className={`w-12 h-6 rounded-full transition-colors flex-shrink-0 ${theme === "dark" ? "bg-emerald-500" : "bg-[#3a3a3a]"}`}>
-                  <div className={`w-5 h-5 bg-white rounded-full mt-0.5 transition-transform shadow-sm ${theme === "dark" ? "translate-x-6" : "translate-x-0.5"}`} />
-                </div>
-              </button>
+              {/* Preferences group */}
+              <p style={{ fontSize: "12px", fontWeight: "600", color: textTer, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: "6px", paddingLeft: "4px" }}>
+                Preferences
+              </p>
+              <div style={{
+                background: cardBg, borderRadius: "16px", overflow: "hidden",
+                border: `1px solid ${cardBorder}`,
+                backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+                boxShadow: isDark ? "0 4px 20px rgba(0,0,0,0.3)" : "0 2px 12px rgba(0,0,0,0.06)",
+                marginBottom: "10px",
+              }}>
+                {settingsItems.map((item, i) => (
+                  <button key={i} onClick={item.action} style={{
+                    width: "100%", display: "flex", alignItems: "center", gap: "13px",
+                    padding: "13px 16px", textAlign: "left", cursor: "pointer",
+                    background: "transparent",
+                    borderBottom: i < settingsItems.length - 1 ? `1px solid ${cardBorder}` : "none",
+                    transition: "background 0.15s",
+                  }}>
+                    <div style={{ width: "34px", height: "34px", borderRadius: "9px", flexShrink: 0, background: item.ibg, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <item.icon size={18} style={{ color: item.color }} />
+                    </div>
+                    <span style={{ flex: 1, fontSize: "16px", fontWeight: "500", color: textPri }}>{item.label}</span>
+                    <ChevronRight size={14} style={{ color: textTer }} />
+                  </button>
+                ))}
+              </div>
 
-              {/* App theme/settings page */}
-              <button
-                onClick={() => navigate("/settings")}
-                className="w-full flex items-center gap-4 px-5 py-4 hover:bg-[#202c33] transition-colors"
-              >
-                <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0">
-                  <Palette className="w-5 h-5 text-blue-400" />
-                </div>
-                <div className="text-left">
-                  <p className="text-white text-sm font-medium">App Theme</p>
-                  <p className="text-[#8696a0] text-xs">Change color themes</p>
-                </div>
-              </button>
+              {/* Sign Out */}
+              <div style={{ background: cardBg, borderRadius: "16px", overflow: "hidden", border: `1px solid ${cardBorder}`, backdropFilter: "blur(20px)" }}>
+                <button onClick={logout} style={{
+                  width: "100%", padding: "15px", display: "flex", alignItems: "center", justifyContent: "center",
+                  background: "transparent", border: "none", cursor: "pointer",
+                }}>
+                  <span style={{ fontSize: "16px", fontWeight: "600", color: red }}>Sign Out</span>
+                </button>
+              </div>
 
-              {/* Logout */}
-              <button
-                onClick={logout}
-                className="w-full flex items-center gap-4 px-5 py-4 hover:bg-red-500/10 transition-colors mt-6 border-t border-[#202c33]"
-              >
-                <div className="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0">
-                  <LogOut className="w-5 h-5 text-red-400" />
-                </div>
-                <p className="text-red-400 text-sm font-medium">Log Out</p>
-              </button>
+              <p style={{ textAlign: "center", color: textTer, fontSize: "12px", marginTop: "24px" }}>Chatty · Version 1.0.0</p>
             </div>
           )}
         </div>
 
-        {/* FAB */}
-        {activeTab === "chats" && (
-          <div className="absolute bottom-20 right-4 z-10">
-            <button className="w-14 h-14 rounded-full bg-emerald-500 hover:bg-emerald-600 flex items-center justify-center shadow-xl transition-colors">
-              <MessageSquare className="w-6 h-6 text-white" />
-            </button>
-          </div>
-        )}
-
-        {/* BOTTOM TAB BAR */}
-        <div className="flex-shrink-0 bg-[#1f2c34] border-t border-[#2a3942] flex items-center justify-around px-2 py-2">
+        {/* ── BOTTOM TAB BAR ── */}
+        <div style={{
+          flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-around",
+          padding: "8px 4px 22px",
+          background: isDark ? "rgba(18,18,22,0.94)" : "rgba(249,249,251,0.94)",
+          borderTop: `1px solid ${cardBorder}`,
+          backdropFilter: "blur(28px)", WebkitBackdropFilter: "blur(28px)",
+        }}>
           {[
-            { id: "chats", icon: MessageSquare, label: "Chats" },
-            { id: "calls", icon: Phone, label: "Calls" },
-            { id: "communities", icon: Users, label: "Communities" },
-            { id: "settings", icon: Settings, label: "Settings" },
-          ].map(({ id, icon: Icon, label }) => (
-            <button
-              key={id}
-              onClick={() => setActiveTab(id)}
-              className={`flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-xl transition-colors ${
-                activeTab === id ? "text-emerald-400" : "text-[#8696a0]"
-              }`}
-            >
-              <Icon className="w-5 h-5" />
-              <span className="text-[10px] font-medium">{label}</span>
-              {activeTab === id && <span className="w-1 h-1 rounded-full bg-emerald-400" />}
-            </button>
-          ))}
+            { id: "chats",       icon: MessageSquare, label: "Chats"     },
+            { id: "calls",       icon: Phone,         label: "Calls"     },
+            { id: "communities", icon: Users,         label: "People"    },
+            { id: "settings",    icon: Settings,      label: "Settings"  },
+          ].map(({ id, icon: Icon, label }) => {
+            const isActive = activeTab === id;
+            return (
+              <button key={id} onClick={() => setActiveTab(id)} style={{
+                display: "flex", flexDirection: "column", alignItems: "center", gap: "3px",
+                padding: "6px 12px", border: "none", background: "transparent", cursor: "pointer",
+                transition: "transform 0.15s",
+              }}>
+                <div style={{
+                  background: isActive ? (isDark ? "rgba(10,132,255,0.2)" : "rgba(10,132,255,0.12)") : "transparent",
+                  borderRadius: "10px", padding: "6px 10px", transition: "background 0.2s",
+                }}>
+                  <Icon size={22} style={{ color: isActive ? accent : textTer, transition: "color 0.2s" }} strokeWidth={isActive ? 2.2 : 1.8} />
+                </div>
+                <span style={{ fontSize: "10px", fontWeight: isActive ? "700" : "500", color: isActive ? accent : textTer, letterSpacing: "0.2px" }}>
+                  {label}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
     );
   }
 
-  /* ==================== DESKTOP ==================== */
+  /* ═══════════════════════ DESKTOP (unchanged) ═══════════════════════ */
   return (
     <aside className="h-full w-full flex flex-col bg-base-100 overflow-hidden">
       <div className="border-b border-base-300 px-4 py-3 flex-shrink-0">
-        <div className="flex items-center justify-between mb-2">
-          <span className="font-semibold text-base">Chats</span>
-          {onlineUsers.filter((id) => id !== authUser?._id).length > 0 && (
+        <div className="flex items-center justify-between mb-3">
+          <span className="font-semibold text-base">Chatty</span>
+          {onlineCount > 0 && (
             <span className="flex items-center gap-1 text-xs bg-emerald-500/10 text-emerald-600 px-2 py-0.5 rounded-full font-medium">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
-              {onlineUsers.filter((id) => id !== authUser?._id).length} online
+              {onlineCount} online
             </span>
           )}
         </div>
         <div className="flex items-center gap-2 bg-base-200 rounded-full px-3 py-1.5">
           <Search className="w-4 h-4 text-base-content/40 flex-shrink-0" />
-          <input
-            type="text"
-            placeholder="Search contacts..."
-            value={searchQuery}
+          <input type="text" placeholder="Search contacts..." value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="bg-transparent outline-none text-sm flex-1 placeholder:text-base-content/30"
-          />
+            className="bg-transparent outline-none text-sm flex-1 placeholder:text-base-content/30" />
         </div>
       </div>
-
       <div className="overflow-y-auto w-full flex-1">
         {filteredUsers.map((user) => {
           const isOnline = onlineUsers.includes(user._id);
           const isSelected = selectedUser?._id === user._id;
           return (
-            <button
-              key={user._id}
-              onClick={() => setSelectedUser(user)}
+            <button key={user._id} onClick={() => setSelectedUser(user)}
               className={`w-full flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-base-200
-             ${isSelected ? "bg-base-200 border-l-4 border-emerald-500" : "border-l-4 border-transparent"}`}
-            >
+                ${isSelected ? "bg-base-200 border-l-4 border-blue-500" : "border-l-4 border-transparent"}`}>
               <div className="relative flex-shrink-0">
-                <img src={user.profilePic || "/avatar.png"} alt={user.fullName}
-                  className="w-11 h-11 rounded-full object-cover" />
-                {isOnline && (
-                  <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-base-100" />
-                )}
+                <img src={user.profilePic || "/avatar.png"} alt={user.fullName} className="w-11 h-11 rounded-full object-cover" />
+                {isOnline && <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-base-100" />}
               </div>
               <div className="flex-1 min-w-0 text-left">
                 <span className="font-medium text-sm truncate block">{user.fullName}</span>
                 <span className={`text-xs ${isOnline ? "text-emerald-500" : "text-base-content/40"}`}>
-                  {isOnline ? "Online" : "Offline"}
+                  {isOnline ? "Active Now" : "Offline"}
                 </span>
               </div>
             </button>
           );
         })}
-
         {filteredUsers.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 gap-2">
             <Users className="w-8 h-8 text-base-content/20" />
@@ -296,6 +670,1205 @@ const Sidebar = ({ onSelectUser }) => {
 };
 
 export default Sidebar;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// import { useEffect, useState, useRef } from "react";
+// import { useChatStore } from "../store/useChatStore";
+// import { useAuthStore } from "../store/useAuthStore";
+// import { useThemeStore } from "../store/useThemeStore";
+// import SidebarSkeleton from "./skeletons/SidebarSkeleton";
+// import {
+//   Search, MessageSquare, Users, Phone, Settings,
+//   LogOut, Palette, ChevronRight, Bell, Shield,
+//   User, Mic, Star,
+// } from "lucide-react";
+// import { useNavigate } from "react-router-dom";
+
+// /* ── tiny hook: staggered mount animation ── */
+// function useStagger(items, delay = 40) {
+//   const [visible, setVisible] = useState([]);
+//   useEffect(() => {
+//     setVisible([]);
+//     items.forEach((_, i) => {
+//       setTimeout(() => setVisible((v) => [...v, i]), i * delay);
+//     });
+//   }, [items.length]);
+//   return visible;
+// }
+
+// const Sidebar = ({ onSelectUser }) => {
+//   const { getUsers, users, selectedUser, setSelectedUser, isUsersLoading } = useChatStore();
+//   const { onlineUsers, authUser, logout } = useAuthStore();
+//   const { theme } = useThemeStore();
+//   const navigate = useNavigate();
+
+//   const [searchQuery, setSearchQuery] = useState("");
+//   const [activeTab, setActiveTab] = useState("chats");
+//   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+//   const [searchFocused, setSearchFocused] = useState(false);
+//   const inputRef = useRef(null);
+
+//   useEffect(() => {
+//     const check = () => setIsMobile(window.innerWidth <= 768);
+//     window.addEventListener("resize", check);
+//     return () => window.removeEventListener("resize", check);
+//   }, []);
+
+//   useEffect(() => { getUsers(); }, [getUsers]);
+
+//   const filteredUsers = users.filter((u) =>
+//     u.fullName?.toLowerCase().includes(searchQuery.toLowerCase())
+//   );
+//   const onlineCount = onlineUsers.filter((id) => id !== authUser?._id).length;
+//   const visibleUsers = useStagger(filteredUsers, 35);
+
+//   if (isUsersLoading) return <SidebarSkeleton />;
+
+//   /* ═══════════════ MOBILE ═══════════════ */
+//   if (isMobile) {
+//     const isDark = theme === "dark";
+
+//     const bg         = isDark ? "rgba(18,18,22,0.97)"   : "rgba(242,242,247,0.97)";
+//     const cardBg     = isDark ? "rgba(30,30,36,0.9)"    : "rgba(255,255,255,0.85)";
+//     const cardBorder = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)";
+//     const textPri    = isDark ? "#f2f2f7"               : "#1c1c1e";
+//     const textSec    = isDark ? "rgba(235,235,245,0.45)" : "rgba(60,60,67,0.45)";
+//     const textTer    = isDark ? "rgba(235,235,245,0.28)" : "rgba(60,60,67,0.28)";
+//     const accent     = "#0a84ff";   // iOS blue
+//     const green      = "#30d158";   // iOS green
+//     const searchBg   = isDark ? "rgba(118,118,128,0.24)" : "rgba(118,118,128,0.12)";
+//     const tabBg      = isDark ? "rgba(18,18,22,0.98)"   : "rgba(249,249,251,0.98)";
+//     const tabActive  = isDark ? "rgba(255,255,255,0.1)"  : "rgba(0,0,0,0.06)";
+
+//     const settingsItems = [
+//       { icon: Palette, label: "Appearance",     sub: "Themes & display",         color: "#bf5af2", bg: "rgba(191,90,242,0.15)", action: () => navigate("/settings") },
+//       { icon: Bell,    label: "Notifications",  sub: "Sounds & alerts",           color: "#ff375f", bg: "rgba(255,55,95,0.12)",  action: () => {} },
+//       { icon: Shield,  label: "Privacy",        sub: "Security & blocked",        color: "#ffd60a", bg: "rgba(255,214,10,0.12)", action: () => {} },
+//       { icon: Mic,     label: "Media",          sub: "Storage & data",            color: "#0a84ff", bg: "rgba(10,132,255,0.12)", action: () => {} },
+//     ];
+
+//     return (
+//       <div style={{
+//         height: "100%", width: "100%", display: "flex", flexDirection: "column",
+//         background: bg, color: textPri, overflow: "hidden", position: "relative",
+//         fontFamily: "-apple-system, 'SF Pro Display', 'Helvetica Neue', sans-serif",
+//       }}>
+
+//         {/* ── subtle top noise texture ── */}
+//         <div style={{
+//           position: "absolute", inset: 0, pointerEvents: "none", zIndex: 0,
+//           backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E")`,
+//         }} />
+
+//         {/* ── HEADER ── */}
+//         <div style={{ position: "relative", zIndex: 1, padding: "52px 20px 12px", flexShrink: 0 }}>
+
+//           {activeTab === "chats" && (
+//             <>
+//               {/* Title row */}
+//               <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: "14px" }}>
+//                 <div>
+//                   <p style={{ fontSize: "13px", fontWeight: "600", color: accent, letterSpacing: "0.3px", marginBottom: "2px" }}>
+//                     {onlineCount > 0 ? `${onlineCount} active` : "Messages"}
+//                   </p>
+//                   <h1 style={{ fontSize: "32px", fontWeight: "800", letterSpacing: "-1px", lineHeight: 1, color: textPri }}>
+//                     Chats
+//                   </h1>
+//                 </div>
+
+//                 {/* Avatar */}
+//                 <button onClick={() => setActiveTab("settings")} style={{
+//                   background: "none", border: "none", cursor: "pointer", padding: 0, position: "relative",
+//                 }}>
+//                   <img src={authUser?.profilePic || "/avatar.png"} alt="" style={{
+//                     width: "36px", height: "36px", borderRadius: "50%", objectFit: "cover",
+//                     boxShadow: `0 0 0 2px ${accent}`,
+//                   }} />
+//                   <span style={{
+//                     position: "absolute", bottom: "0px", right: "0px",
+//                     width: "10px", height: "10px", borderRadius: "50%",
+//                     background: green, border: `2px solid ${bg}`,
+//                   }} />
+//                 </button>
+//               </div>
+
+//               {/* Search */}
+//               <div onClick={() => inputRef.current?.focus()} style={{
+//                 display: "flex", alignItems: "center", gap: "8px",
+//                 background: searchBg, borderRadius: "12px",
+//                 padding: "9px 12px",
+//                 transition: "all 0.2s",
+//                 border: searchFocused ? `1px solid ${accent}` : "1px solid transparent",
+//               }}>
+//                 <Search size={15} style={{ color: textSec, flexShrink: 0 }} />
+//                 <input
+//                   ref={inputRef}
+//                   type="text"
+//                   placeholder="Search"
+//                   value={searchQuery}
+//                   onChange={(e) => setSearchQuery(e.target.value)}
+//                   onFocus={() => setSearchFocused(true)}
+//                   onBlur={() => setSearchFocused(false)}
+//                   style={{
+//                     background: "transparent", border: "none", outline: "none",
+//                     color: textPri, fontSize: "16px", flex: 1,
+//                     fontFamily: "inherit",
+//                   }}
+//                 />
+//                 {searchQuery && (
+//                   <button onClick={() => setSearchQuery("")} style={{
+//                     background: textSec, border: "none", borderRadius: "50%",
+//                     width: "16px", height: "16px", cursor: "pointer",
+//                     display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+//                   }}>
+//                     <span style={{ color: bg, fontSize: "10px", fontWeight: "700", lineHeight: 1 }}>✕</span>
+//                   </button>
+//                 )}
+//               </div>
+//             </>
+//           )}
+
+//           {activeTab === "settings" && (
+//             <h1 style={{ fontSize: "32px", fontWeight: "800", letterSpacing: "-1px", color: textPri }}>Settings</h1>
+//           )}
+//           {activeTab === "calls" && (
+//             <h1 style={{ fontSize: "32px", fontWeight: "800", letterSpacing: "-1px", color: textPri }}>Recents</h1>
+//           )}
+//           {activeTab === "communities" && (
+//             <h1 style={{ fontSize: "32px", fontWeight: "800", letterSpacing: "-1px", color: textPri }}>People</h1>
+//           )}
+//         </div>
+
+//         {/* ── CONTENT ── */}
+//         <div style={{ flex: 1, overflowY: "auto", minHeight: 0, position: "relative", zIndex: 1 }}>
+
+//           {/* CHATS LIST */}
+//           {activeTab === "chats" && (
+//             <div style={{ padding: "0 16px 16px" }}>
+//               {filteredUsers.length === 0 && (
+//                 <div style={{ textAlign: "center", padding: "60px 20px" }}>
+//                   <div style={{ fontSize: "48px", marginBottom: "12px" }}>🔍</div>
+//                   <p style={{ color: textSec, fontSize: "15px", fontWeight: "500" }}>No results for "{searchQuery}"</p>
+//                 </div>
+//               )}
+
+//               {/* Grouped card */}
+//               <div style={{
+//                 background: cardBg, borderRadius: "16px",
+//                 border: `1px solid ${cardBorder}`,
+//                 overflow: "hidden",
+//                 backdropFilter: "blur(20px)",
+//                 WebkitBackdropFilter: "blur(20px)",
+//                 boxShadow: isDark
+//                   ? "0 4px 24px rgba(0,0,0,0.4)"
+//                   : "0 2px 16px rgba(0,0,0,0.08)",
+//               }}>
+//                 {filteredUsers.map((user, i) => {
+//                   const isOnline = onlineUsers.includes(user._id);
+//                   const isSelected = selectedUser?._id === user._id;
+//                   const isVisible = visibleUsers.includes(i);
+//                   const isLast = i === filteredUsers.length - 1;
+
+//                   return (
+//                     <button
+//                       key={user._id}
+//                       onClick={() => { setSelectedUser(user); onSelectUser?.(); }}
+//                       style={{
+//                         width: "100%", display: "flex", alignItems: "center", gap: "12px",
+//                         padding: "11px 14px", textAlign: "left", cursor: "pointer",
+//                         background: isSelected
+//                           ? isDark ? "rgba(10,132,255,0.15)" : "rgba(10,132,255,0.08)"
+//                           : "transparent",
+//                         borderBottom: isLast ? "none" : `1px solid ${cardBorder}`,
+//                         opacity: isVisible ? 1 : 0,
+//                         transform: isVisible ? "translateY(0)" : "translateY(6px)",
+//                         transition: "opacity 0.25s ease, transform 0.25s ease, background 0.15s",
+//                       }}
+//                     >
+//                       {/* Avatar */}
+//                       <div style={{ position: "relative", flexShrink: 0 }}>
+//                         <img src={user.profilePic || "/avatar.png"} alt={user.fullName}
+//                           style={{ width: "46px", height: "46px", borderRadius: "50%", objectFit: "cover" }} />
+//                         {isOnline && (
+//                           <span style={{
+//                             position: "absolute", bottom: "1px", right: "1px",
+//                             width: "11px", height: "11px", borderRadius: "50%",
+//                             background: green, border: `2px solid ${cardBg}`,
+//                           }} />
+//                         )}
+//                       </div>
+
+//                       {/* Text */}
+//                       <div style={{ flex: 1, minWidth: 0 }}>
+//                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "8px" }}>
+//                           <span style={{
+//                             fontSize: "16px", fontWeight: "600", color: textPri,
+//                             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+//                           }}>
+//                             {user.fullName}
+//                           </span>
+//                           <span style={{ fontSize: "12px", color: textTer, flexShrink: 0, fontWeight: "400" }}>
+//                             Yesterday
+//                           </span>
+//                         </div>
+//                         <p style={{
+//                           fontSize: "13px", color: isOnline ? green : textSec,
+//                           marginTop: "1px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+//                           fontWeight: isOnline ? "500" : "400",
+//                         }}>
+//                           {isOnline ? "Active Now" : "Tap to message"}
+//                         </p>
+//                       </div>
+
+//                       {/* Chevron */}
+//                       <ChevronRight size={15} style={{ color: textTer, flexShrink: 0 }} />
+//                     </button>
+//                   );
+//                 })}
+//               </div>
+//             </div>
+//           )}
+
+//           {/* CALLS */}
+//           {activeTab === "calls" && (
+//             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 20px", gap: "12px" }}>
+//               <div style={{ fontSize: "52px" }}>📵</div>
+//               <p style={{ color: textSec, fontSize: "16px", fontWeight: "500" }}>No Recent Calls</p>
+//               <p style={{ color: textTer, fontSize: "13px", textAlign: "center" }}>Your call history will appear here</p>
+//             </div>
+//           )}
+
+//           {/* PEOPLE */}
+//           {activeTab === "communities" && (
+//             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 20px", gap: "12px" }}>
+//               <div style={{ fontSize: "52px" }}>👥</div>
+//               <p style={{ color: textSec, fontSize: "16px", fontWeight: "500" }}>No Communities</p>
+//               <p style={{ color: textTer, fontSize: "13px", textAlign: "center" }}>Communities you join will appear here</p>
+//             </div>
+//           )}
+
+//           {/* SETTINGS */}
+//           {activeTab === "settings" && (
+//             <div style={{ padding: "0 16px 40px" }}>
+
+//               {/* Profile hero */}
+//               <button onClick={() => navigate("/profile")} style={{
+//                 width: "100%", display: "flex", alignItems: "center", gap: "14px",
+//                 padding: "14px 16px", borderRadius: "16px", marginBottom: "8px",
+//                 background: cardBg, border: `1px solid ${cardBorder}`,
+//                 cursor: "pointer", textAlign: "left",
+//                 backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+//                 boxShadow: isDark ? "0 4px 20px rgba(0,0,0,0.35)" : "0 2px 12px rgba(0,0,0,0.07)",
+//               }}>
+//                 <div style={{ position: "relative", flexShrink: 0 }}>
+//                   <img src={authUser?.profilePic || "/avatar.png"} alt="" style={{
+//                     width: "62px", height: "62px", borderRadius: "50%", objectFit: "cover",
+//                   }} />
+//                   <span style={{
+//                     position: "absolute", bottom: "2px", right: "2px",
+//                     width: "14px", height: "14px", borderRadius: "50%",
+//                     background: green, border: `2.5px solid ${cardBg}`,
+//                   }} />
+//                 </div>
+//                 <div style={{ flex: 1, minWidth: 0 }}>
+//                   <p style={{ fontSize: "18px", fontWeight: "700", color: textPri, letterSpacing: "-0.3px" }}>{authUser?.fullName}</p>
+//                   <p style={{ fontSize: "13px", color: accent, fontWeight: "500", marginTop: "2px" }}>Edit Profile</p>
+//                 </div>
+//                 <ChevronRight size={16} style={{ color: textTer }} />
+//               </button>
+
+//               {/* Settings group */}
+//               <div style={{ marginBottom: "10px" }}>
+//                 <p style={{ fontSize: "12px", fontWeight: "600", color: textTer, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: "6px", paddingLeft: "4px" }}>
+//                   Preferences
+//                 </p>
+//                 <div style={{
+//                   background: cardBg, borderRadius: "16px", overflow: "hidden",
+//                   border: `1px solid ${cardBorder}`,
+//                   backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+//                   boxShadow: isDark ? "0 4px 20px rgba(0,0,0,0.3)" : "0 2px 12px rgba(0,0,0,0.06)",
+//                 }}>
+//                   {settingsItems.map((item, i) => (
+//                     <button key={i} onClick={item.action} style={{
+//                       width: "100%", display: "flex", alignItems: "center", gap: "12px",
+//                       padding: "13px 16px", textAlign: "left", cursor: "pointer",
+//                       background: "transparent",
+//                       borderBottom: i < settingsItems.length - 1 ? `1px solid ${cardBorder}` : "none",
+//                       transition: "background 0.15s",
+//                     }}>
+//                       <div style={{
+//                         width: "32px", height: "32px", borderRadius: "8px", flexShrink: 0,
+//                         background: item.bg, display: "flex", alignItems: "center", justifyContent: "center",
+//                       }}>
+//                         <item.icon size={17} style={{ color: item.color }} />
+//                       </div>
+//                       <span style={{ flex: 1, fontSize: "16px", fontWeight: "500", color: textPri }}>{item.label}</span>
+//                       <ChevronRight size={14} style={{ color: textTer }} />
+//                     </button>
+//                   ))}
+//                 </div>
+//               </div>
+
+//               {/* Logout */}
+//               <div style={{
+//                 background: cardBg, borderRadius: "16px", overflow: "hidden",
+//                 border: `1px solid ${cardBorder}`,
+//                 backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+//               }}>
+//                 <button onClick={logout} style={{
+//                   width: "100%", display: "flex", alignItems: "center", justifyContent: "center",
+//                   padding: "15px", cursor: "pointer", background: "transparent",
+//                 }}>
+//                   <span style={{ fontSize: "16px", fontWeight: "600", color: "#ff375f" }}>Sign Out</span>
+//                 </button>
+//               </div>
+
+//               <p style={{ textAlign: "center", color: textTer, fontSize: "12px", marginTop: "20px" }}>
+//                 Chatty · Version 1.0.0
+//               </p>
+//             </div>
+//           )}
+//         </div>
+
+//         {/* ── BOTTOM TAB BAR ── iOS style ── */}
+//         <div style={{
+//           flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-around",
+//           padding: "8px 4px 20px",
+//           background: isDark
+//             ? "rgba(18,18,22,0.92)"
+//             : "rgba(249,249,251,0.92)",
+//           borderTop: `1px solid ${cardBorder}`,
+//           backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
+//         }}>
+//           {[
+//             { id: "chats", icon: MessageSquare, label: "Chats", badge: null },
+//             { id: "calls",  icon: Phone,         label: "Calls",  badge: null },
+//             { id: "communities", icon: Users,    label: "People", badge: null },
+//             { id: "settings",   icon: Settings,  label: "Settings", badge: null },
+//           ].map(({ id, icon: Icon, label }) => {
+//             const isActive = activeTab === id;
+//             return (
+//               <button key={id} onClick={() => setActiveTab(id)} style={{
+//                 display: "flex", flexDirection: "column", alignItems: "center", gap: "3px",
+//                 padding: "6px 14px", border: "none", background: "transparent", cursor: "pointer",
+//                 transition: "transform 0.15s",
+//               }}>
+//                 <div style={{
+//                   position: "relative",
+//                   background: isActive ? (isDark ? "rgba(10,132,255,0.2)" : "rgba(10,132,255,0.12)") : "transparent",
+//                   borderRadius: "10px", padding: "6px 10px",
+//                   transition: "background 0.2s",
+//                 }}>
+//                   <Icon size={22} style={{
+//                     color: isActive ? accent : textTer,
+//                     transition: "color 0.2s",
+//                   }} strokeWidth={isActive ? 2.2 : 1.8} />
+//                 </div>
+//                 <span style={{
+//                   fontSize: "10px", fontWeight: isActive ? "700" : "500",
+//                   color: isActive ? accent : textTer,
+//                   letterSpacing: "0.2px",
+//                   transition: "color 0.2s",
+//                 }}>
+//                   {label}
+//                 </span>
+//               </button>
+//             );
+//           })}
+//         </div>
+//       </div>
+//     );
+//   }
+
+//   /* ═══════════════ DESKTOP (unchanged) ═══════════════ */
+//   return (
+//     <aside className="h-full w-full flex flex-col bg-base-100 overflow-hidden">
+//       <div className="border-b border-base-300 px-4 py-3 flex-shrink-0">
+//         <div className="flex items-center justify-between mb-3">
+//           <span className="font-semibold text-base">Chats</span>
+//           {onlineCount > 0 && (
+//             <span className="flex items-center gap-1 text-xs bg-emerald-500/10 text-emerald-600 px-2 py-0.5 rounded-full font-medium">
+//               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+//               {onlineCount} online
+//             </span>
+//           )}
+//         </div>
+//         <div className="flex items-center gap-2 bg-base-200 rounded-full px-3 py-1.5">
+//           <Search className="w-4 h-4 text-base-content/40 flex-shrink-0" />
+//           <input type="text" placeholder="Search contacts..."
+//             value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+//             className="bg-transparent outline-none text-sm flex-1 placeholder:text-base-content/30" />
+//         </div>
+//       </div>
+//       <div className="overflow-y-auto w-full flex-1">
+//         {filteredUsers.map((user) => {
+//           const isOnline = onlineUsers.includes(user._id);
+//           const isSelected = selectedUser?._id === user._id;
+//           return (
+//             <button key={user._id} onClick={() => setSelectedUser(user)}
+//               className={`w-full flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-base-200
+//                 ${isSelected ? "bg-base-200 border-l-4 border-blue-500" : "border-l-4 border-transparent"}`}>
+//               <div className="relative flex-shrink-0">
+//                 <img src={user.profilePic || "/avatar.png"} alt={user.fullName}
+//                   className="w-11 h-11 rounded-full object-cover" />
+//                 {isOnline && <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-base-100" />}
+//               </div>
+//               <div className="flex-1 min-w-0 text-left">
+//                 <span className="font-medium text-sm truncate block">{user.fullName}</span>
+//                 <span className={`text-xs ${isOnline ? "text-emerald-500" : "text-base-content/40"}`}>
+//                   {isOnline ? "Active Now" : "Offline"}
+//                 </span>
+//               </div>
+//             </button>
+//           );
+//         })}
+//         {filteredUsers.length === 0 && (
+//           <div className="flex flex-col items-center justify-center py-12 gap-2">
+//             <Users className="w-8 h-8 text-base-content/20" />
+//             <p className="text-sm text-base-content/40">No contacts found</p>
+//           </div>
+//         )}
+//       </div>
+//     </aside>
+//   );
+// };
+
+// export default Sidebar;
+
+// import { useEffect, useState } from "react";
+// import { useChatStore } from "../store/useChatStore";
+// import { useAuthStore } from "../store/useAuthStore";
+// import { useThemeStore } from "../store/useThemeStore";
+// import SidebarSkeleton from "./skeletons/SidebarSkeleton";
+// import {
+//   Search, MessageSquare, Users, Phone, Settings,
+//   LogOut, Palette, ChevronRight, Sparkles,
+// } from "lucide-react";
+// import { useNavigate } from "react-router-dom";
+
+// const Sidebar = ({ onSelectUser }) => {
+//   const { getUsers, users, selectedUser, setSelectedUser, isUsersLoading } = useChatStore();
+//   const { onlineUsers, authUser, logout } = useAuthStore();
+//   const { theme } = useThemeStore();
+//   const navigate = useNavigate();
+
+//   const [searchQuery, setSearchQuery] = useState("");
+//   const [activeTab, setActiveTab] = useState("chats");
+//   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+//   const [hoveredUser, setHoveredUser] = useState(null);
+
+//   useEffect(() => {
+//     const check = () => setIsMobile(window.innerWidth <= 768);
+//     window.addEventListener("resize", check);
+//     return () => window.removeEventListener("resize", check);
+//   }, []);
+
+//   useEffect(() => { getUsers(); }, [getUsers]);
+
+//   const filteredUsers = users.filter((u) =>
+//     u.fullName?.toLowerCase().includes(searchQuery.toLowerCase())
+//   );
+
+//   const onlineCount = onlineUsers.filter((id) => id !== authUser?._id).length;
+
+//   if (isUsersLoading) return <SidebarSkeleton />;
+
+//   /* ==================== MOBILE ==================== */
+//   if (isMobile) {
+//     return (
+//       <div style={{
+//         height: "100%", width: "100%", display: "flex", flexDirection: "column",
+//         background: "linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)",
+//         color: "white", overflow: "hidden", position: "relative",
+//       }}>
+
+//         {/* BG blobs */}
+//         <div style={{
+//           position: "absolute", top: "-80px", right: "-80px", width: "250px", height: "250px",
+//           borderRadius: "50%", background: "radial-gradient(circle, rgba(120,80,255,0.3) 0%, transparent 70%)",
+//           pointerEvents: "none",
+//         }} />
+//         <div style={{
+//           position: "absolute", bottom: "80px", left: "-60px", width: "200px", height: "200px",
+//           borderRadius: "50%", background: "radial-gradient(circle, rgba(0,200,150,0.2) 0%, transparent 70%)",
+//           pointerEvents: "none",
+//         }} />
+
+//         {/* ---- HEADER ---- */}
+//         <div style={{ padding: "48px 20px 16px", flexShrink: 0 }}>
+//           {activeTab === "chats" && (
+//             <>
+//               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
+//                 <div>
+//                   <p style={{ fontSize: "11px", color: "rgba(255,255,255,0.45)", marginBottom: "2px", letterSpacing: "1.5px", textTransform: "uppercase" }}>
+//                     Welcome back
+//                   </p>
+//                   <h1 style={{ fontSize: "24px", fontWeight: "800", lineHeight: 1.2 }}>
+//                     {authUser?.fullName?.split(" ")[0]} 👋
+//                   </h1>
+//                 </div>
+//                 <img src={authUser?.profilePic || "/avatar.png"} alt="" style={{
+//                   width: "46px", height: "46px", borderRadius: "50%", objectFit: "cover",
+//                   border: "2px solid rgba(120,80,255,0.6)", boxShadow: "0 0 0 4px rgba(120,80,255,0.15)",
+//                 }} />
+//               </div>
+
+//               {onlineCount > 0 && (
+//                 <div style={{
+//                   display: "inline-flex", alignItems: "center", gap: "6px",
+//                   background: "rgba(0,200,150,0.12)", border: "1px solid rgba(0,200,150,0.3)",
+//                   borderRadius: "20px", padding: "4px 12px", marginBottom: "14px",
+//                 }}>
+//                   <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#00c896", display: "inline-block", boxShadow: "0 0 6px #00c896" }} />
+//                   <span style={{ fontSize: "12px", color: "#00c896", fontWeight: "600" }}>{onlineCount} online now</span>
+//                 </div>
+//               )}
+
+//               <div style={{
+//                 display: "flex", alignItems: "center", gap: "10px",
+//                 background: "rgba(255,255,255,0.07)", borderRadius: "14px",
+//                 padding: "10px 14px", border: "1px solid rgba(255,255,255,0.1)",
+//                 backdropFilter: "blur(10px)",
+//               }}>
+//                 <Search size={16} style={{ color: "rgba(255,255,255,0.4)", flexShrink: 0 }} />
+//                 <input type="text" placeholder="Search people..."
+//                   value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+//                   style={{ background: "transparent", border: "none", outline: "none", color: "white", fontSize: "14px", flex: 1 }} />
+//               </div>
+//             </>
+//           )}
+
+//           {activeTab === "settings" && <h1 style={{ fontSize: "24px", fontWeight: "800" }}>Settings ⚙️</h1>}
+//           {activeTab === "calls"    && <h1 style={{ fontSize: "24px", fontWeight: "800" }}>Calls 📞</h1>}
+//           {activeTab === "communities" && <h1 style={{ fontSize: "24px", fontWeight: "800" }}>People 👥</h1>}
+//         </div>
+
+//         {/* ---- CONTENT ---- */}
+//         <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+
+//           {/* CHATS */}
+//           {activeTab === "chats" && (
+//             <div style={{ padding: "4px 12px" }}>
+//               {filteredUsers.length === 0 && (
+//                 <p style={{ textAlign: "center", color: "rgba(255,255,255,0.3)", padding: "40px 0", fontSize: "14px" }}>No contacts found</p>
+//               )}
+//               {filteredUsers.map((user) => {
+//                 const isOnline = onlineUsers.includes(user._id);
+//                 const isSelected = selectedUser?._id === user._id;
+//                 return (
+//                   <button
+//                     key={user._id}
+//                     onClick={() => { setSelectedUser(user); onSelectUser?.(); }}
+//                     onMouseEnter={() => setHoveredUser(user._id)}
+//                     onMouseLeave={() => setHoveredUser(null)}
+//                     style={{
+//                       width: "100%", display: "flex", alignItems: "center", gap: "12px",
+//                       padding: "10px 12px", borderRadius: "16px", marginBottom: "4px",
+//                       background: isSelected
+//                         ? "linear-gradient(135deg, rgba(120,80,255,0.35), rgba(0,200,150,0.15))"
+//                         : hoveredUser === user._id ? "rgba(255,255,255,0.06)" : "transparent",
+//                       border: isSelected ? "1px solid rgba(120,80,255,0.4)" : "1px solid transparent",
+//                       transition: "all 0.2s ease", textAlign: "left", cursor: "pointer",
+//                       boxShadow: isSelected ? "0 4px 20px rgba(120,80,255,0.15)" : "none",
+//                     }}
+//                   >
+//                     <div style={{ position: "relative", flexShrink: 0 }}>
+//                       <img src={user.profilePic || "/avatar.png"} alt={user.fullName} style={{
+//                         width: "48px", height: "48px", borderRadius: "50%", objectFit: "cover",
+//                         border: isSelected ? "2px solid rgba(120,80,255,0.7)" : "2px solid rgba(255,255,255,0.1)",
+//                       }} />
+//                       {isOnline && (
+//                         <span style={{
+//                           position: "absolute", bottom: "1px", right: "1px",
+//                           width: "12px", height: "12px", borderRadius: "50%",
+//                           background: "#00c896", border: "2px solid #1a1040",
+//                           boxShadow: "0 0 6px #00c896",
+//                         }} />
+//                       )}
+//                     </div>
+//                     <div style={{ flex: 1, minWidth: 0 }}>
+//                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+//                         <span style={{ fontWeight: "600", fontSize: "15px", color: "white", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+//                           {user.fullName}
+//                         </span>
+//                         <span style={{ fontSize: "11px", color: "rgba(255,255,255,0.35)", flexShrink: 0, marginLeft: "8px" }}>
+//                           Yesterday
+//                         </span>
+//                       </div>
+//                       <p style={{ fontSize: "13px", color: isOnline ? "#00c896" : "rgba(255,255,255,0.35)", marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+//                         {isOnline ? "● Active now" : "Tap to message"}
+//                       </p>
+//                     </div>
+//                   </button>
+//                 );
+//               })}
+//             </div>
+//           )}
+
+//           {/* CALLS */}
+//           {activeTab === "calls" && (
+//             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 20px", gap: "12px" }}>
+//               <div style={{ width: "72px", height: "72px", borderRadius: "50%", background: "rgba(120,80,255,0.12)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+//                 <Phone size={30} style={{ color: "rgba(120,80,255,0.5)" }} />
+//               </div>
+//               <p style={{ color: "rgba(255,255,255,0.3)", fontSize: "14px" }}>No recent calls</p>
+//             </div>
+//           )}
+
+//           {/* COMMUNITIES */}
+//           {activeTab === "communities" && (
+//             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 20px", gap: "12px" }}>
+//               <div style={{ width: "72px", height: "72px", borderRadius: "50%", background: "rgba(0,200,150,0.1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+//                 <Users size={30} style={{ color: "rgba(0,200,150,0.5)" }} />
+//               </div>
+//               <p style={{ color: "rgba(255,255,255,0.3)", fontSize: "14px" }}>No communities yet</p>
+//             </div>
+//           )}
+
+//           {/* SETTINGS */}
+//           {activeTab === "settings" && (
+//             <div style={{ padding: "0 12px 24px" }}>
+
+//               {/* Profile card */}
+//               <button onClick={() => navigate("/profile")} style={{
+//                 width: "100%", display: "flex", alignItems: "center", gap: "14px",
+//                 padding: "16px", borderRadius: "22px", marginBottom: "12px",
+//                 background: "linear-gradient(135deg, rgba(120,80,255,0.25), rgba(0,200,150,0.12))",
+//                 border: "1px solid rgba(120,80,255,0.35)", cursor: "pointer", textAlign: "left",
+//                 boxShadow: "0 8px 24px rgba(120,80,255,0.12)",
+//               }}>
+//                 <div style={{ position: "relative", flexShrink: 0 }}>
+//                   <img src={authUser?.profilePic || "/avatar.png"} alt="" style={{
+//                     width: "58px", height: "58px", borderRadius: "50%", objectFit: "cover",
+//                     border: "2px solid rgba(120,80,255,0.6)",
+//                     boxShadow: "0 0 0 4px rgba(120,80,255,0.15)",
+//                   }} />
+//                   {/* small edit badge */}
+//                   <div style={{
+//                     position: "absolute", bottom: 0, right: 0,
+//                     width: "20px", height: "20px", borderRadius: "50%",
+//                     background: "linear-gradient(135deg,#7b50ff,#00c896)",
+//                     display: "flex", alignItems: "center", justifyContent: "center",
+//                     fontSize: "11px", border: "2px solid #1a1040",
+//                   }}>✏️</div>
+//                 </div>
+//                 <div style={{ flex: 1, minWidth: 0 }}>
+//                   <p style={{ fontWeight: "700", fontSize: "16px", color: "white" }}>{authUser?.fullName}</p>
+//                   <p style={{ fontSize: "12px", color: "rgba(255,255,255,0.4)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{authUser?.email}</p>
+//                   <p style={{ fontSize: "11px", color: "#7b50ff", marginTop: "4px", fontWeight: "600" }}>Tap to edit profile →</p>
+//                 </div>
+//                 <ChevronRight size={18} style={{ color: "rgba(255,255,255,0.3)", flexShrink: 0 }} />
+//               </button>
+
+//               {/* Section label */}
+//               <p style={{ fontSize: "11px", color: "rgba(255,255,255,0.3)", letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: "8px", paddingLeft: "4px" }}>
+//                 Preferences
+//               </p>
+
+//               {/* App Themes card — gradient hero */}
+//               <button onClick={() => navigate("/settings")} style={{
+//                 width: "100%", display: "flex", alignItems: "center", gap: "14px",
+//                 padding: "16px", borderRadius: "20px", marginBottom: "8px",
+//                 background: "linear-gradient(135deg, rgba(123,80,255,0.22), rgba(0,200,150,0.12))",
+//                 border: "1px solid rgba(123,80,255,0.28)", cursor: "pointer", textAlign: "left",
+//                 boxShadow: "0 4px 16px rgba(123,80,255,0.1)",
+//               }}>
+//                 <div style={{
+//                   width: "46px", height: "46px", borderRadius: "14px", flexShrink: 0,
+//                   background: "linear-gradient(135deg, #7b50ff, #00c896)",
+//                   display: "flex", alignItems: "center", justifyContent: "center",
+//                   boxShadow: "0 4px 14px rgba(123,80,255,0.45)",
+//                 }}>
+//                   <Palette size={22} style={{ color: "white" }} />
+//                 </div>
+//                 <div style={{ flex: 1 }}>
+//                   <p style={{ fontWeight: "700", fontSize: "15px", color: "white" }}>App Themes</p>
+//                   <p style={{ fontSize: "12px", color: "rgba(255,255,255,0.4)", marginTop: "2px" }}>Colors, wallpapers & display</p>
+//                 </div>
+//                 <ChevronRight size={18} style={{ color: "rgba(255,255,255,0.35)" }} />
+//               </button>
+
+//               {/* Notifications card */}
+//               <button style={{
+//                 width: "100%", display: "flex", alignItems: "center", gap: "14px",
+//                 padding: "16px", borderRadius: "20px", marginBottom: "8px",
+//                 background: "rgba(0,200,150,0.07)", border: "1px solid rgba(0,200,150,0.18)",
+//                 cursor: "pointer", textAlign: "left",
+//               }}>
+//                 <div style={{
+//                   width: "46px", height: "46px", borderRadius: "14px", flexShrink: 0,
+//                   background: "rgba(0,200,150,0.18)", display: "flex", alignItems: "center", justifyContent: "center",
+//                 }}>
+//                   <span style={{ fontSize: "22px" }}>🔔</span>
+//                 </div>
+//                 <div style={{ flex: 1 }}>
+//                   <p style={{ fontWeight: "700", fontSize: "15px", color: "white" }}>Notifications</p>
+//                   <p style={{ fontSize: "12px", color: "rgba(255,255,255,0.4)", marginTop: "2px" }}>Sounds, vibrations & alerts</p>
+//                 </div>
+//                 <ChevronRight size={18} style={{ color: "rgba(255,255,255,0.35)" }} />
+//               </button>
+
+//               {/* Privacy card */}
+//               <button style={{
+//                 width: "100%", display: "flex", alignItems: "center", gap: "14px",
+//                 padding: "16px", borderRadius: "20px", marginBottom: "20px",
+//                 background: "rgba(245,158,11,0.07)", border: "1px solid rgba(245,158,11,0.18)",
+//                 cursor: "pointer", textAlign: "left",
+//               }}>
+//                 <div style={{
+//                   width: "46px", height: "46px", borderRadius: "14px", flexShrink: 0,
+//                   background: "rgba(245,158,11,0.18)", display: "flex", alignItems: "center", justifyContent: "center",
+//                 }}>
+//                   <span style={{ fontSize: "22px" }}>🔒</span>
+//                 </div>
+//                 <div style={{ flex: 1 }}>
+//                   <p style={{ fontWeight: "700", fontSize: "15px", color: "white" }}>Privacy</p>
+//                   <p style={{ fontSize: "12px", color: "rgba(255,255,255,0.4)", marginTop: "2px" }}>Last seen, blocked & security</p>
+//                 </div>
+//                 <ChevronRight size={18} style={{ color: "rgba(255,255,255,0.35)" }} />
+//               </button>
+
+//               {/* Logout */}
+//               <button onClick={logout} style={{
+//                 width: "100%", display: "flex", alignItems: "center", gap: "14px",
+//                 padding: "16px", borderRadius: "20px",
+//                 background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)",
+//                 cursor: "pointer", textAlign: "left",
+//               }}>
+//                 <div style={{
+//                   width: "46px", height: "46px", borderRadius: "14px", flexShrink: 0,
+//                   background: "rgba(239,68,68,0.15)", display: "flex", alignItems: "center", justifyContent: "center",
+//                 }}>
+//                   <LogOut size={22} style={{ color: "#ef4444" }} />
+//                 </div>
+//                 <div style={{ flex: 1 }}>
+//                   <p style={{ fontWeight: "700", fontSize: "15px", color: "#ef4444" }}>Log Out</p>
+//                   <p style={{ fontSize: "12px", color: "rgba(239,68,68,0.5)", marginTop: "2px" }}>Sign out of your account</p>
+//                 </div>
+//               </button>
+//             </div>
+//           )}
+//         </div>
+
+//         {/* FAB */}
+//         {activeTab === "chats" && (
+//           <div style={{ position: "absolute", bottom: "80px", right: "20px", zIndex: 10 }}>
+//             <button style={{
+//               width: "56px", height: "56px", borderRadius: "18px",
+//               background: "linear-gradient(135deg, #7b50ff, #00c896)",
+//               display: "flex", alignItems: "center", justifyContent: "center",
+//               boxShadow: "0 8px 24px rgba(123,80,255,0.45)", border: "none", cursor: "pointer",
+//             }}>
+//               <Sparkles size={22} style={{ color: "white" }} />
+//             </button>
+//           </div>
+//         )}
+
+//         {/* BOTTOM TAB BAR */}
+//         <div style={{
+//           flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-around",
+//           padding: "10px 8px 16px",
+//           background: "rgba(15,12,41,0.96)",
+//           borderTop: "1px solid rgba(255,255,255,0.07)",
+//           backdropFilter: "blur(20px)",
+//         }}>
+//           {[
+//             { id: "chats", icon: MessageSquare, label: "Chats" },
+//             { id: "calls", icon: Phone, label: "Calls" },
+//             { id: "communities", icon: Users, label: "People" },
+//             { id: "settings", icon: Settings, label: "Settings" },
+//           ].map(({ id, icon: Icon, label }) => {
+//             const isActive = activeTab === id;
+//             return (
+//               <button key={id} onClick={() => setActiveTab(id)} style={{
+//                 display: "flex", flexDirection: "column", alignItems: "center", gap: "4px",
+//                 padding: "8px 16px", borderRadius: "16px", border: "none", cursor: "pointer",
+//                 background: isActive ? "rgba(123,80,255,0.2)" : "transparent",
+//                 transition: "all 0.2s ease",
+//               }}>
+//                 <Icon size={20} style={{ color: isActive ? "#7b50ff" : "rgba(255,255,255,0.35)" }} />
+//                 <span style={{ fontSize: "10px", fontWeight: isActive ? "700" : "500", color: isActive ? "#7b50ff" : "rgba(255,255,255,0.35)" }}>
+//                   {label}
+//                 </span>
+//               </button>
+//             );
+//           })}
+//         </div>
+//       </div>
+//     );
+//   }
+
+//   /* ==================== DESKTOP (unchanged) ==================== */
+//   return (
+//     <aside className="h-full w-full flex flex-col bg-base-100 overflow-hidden">
+//       <div className="border-b border-base-300 px-4 py-3 flex-shrink-0">
+//         <div className="flex items-center justify-between mb-3">
+//           <span className="font-semibold text-base">Chats</span>
+//           {onlineCount > 0 && (
+//             <span className="flex items-center gap-1 text-xs bg-emerald-500/10 text-emerald-600 px-2 py-0.5 rounded-full font-medium">
+//               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+//               {onlineCount} online
+//             </span>
+//           )}
+//         </div>
+//         <div className="flex items-center gap-2 bg-base-200 rounded-full px-3 py-1.5">
+//           <Search className="w-4 h-4 text-base-content/40 flex-shrink-0" />
+//           <input type="text" placeholder="Search contacts..."
+//             value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+//             className="bg-transparent outline-none text-sm flex-1 placeholder:text-base-content/30" />
+//         </div>
+//       </div>
+
+//       <div className="overflow-y-auto w-full flex-1">
+//         {filteredUsers.map((user) => {
+//           const isOnline = onlineUsers.includes(user._id);
+//           const isSelected = selectedUser?._id === user._id;
+//           return (
+//             <button key={user._id} onClick={() => setSelectedUser(user)}
+//               className={`w-full flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-base-200
+//                 ${isSelected ? "bg-base-200 border-l-4 border-violet-500" : "border-l-4 border-transparent"}`}>
+//               <div className="relative flex-shrink-0">
+//                 <img src={user.profilePic || "/avatar.png"} alt={user.fullName}
+//                   className="w-11 h-11 rounded-full object-cover" />
+//                 {isOnline && <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-base-100" />}
+//               </div>
+//               <div className="flex-1 min-w-0 text-left">
+//                 <span className="font-medium text-sm truncate block">{user.fullName}</span>
+//                 <span className={`text-xs ${isOnline ? "text-emerald-500" : "text-base-content/40"}`}>
+//                   {isOnline ? "● Online" : "Offline"}
+//                 </span>
+//               </div>
+//             </button>
+//           );
+//         })}
+//         {filteredUsers.length === 0 && (
+//           <div className="flex flex-col items-center justify-center py-12 gap-2">
+//             <Users className="w-8 h-8 text-base-content/20" />
+//             <p className="text-sm text-base-content/40">No contacts found</p>
+//           </div>
+//         )}
+//       </div>
+//     </aside>
+//   );
+// };
+
+// export default Sidebar;
+
+
+// import { useEffect, useState } from "react";
+// import { useChatStore } from "../store/useChatStore";
+// import { useAuthStore } from "../store/useAuthStore";
+// import { useThemeStore } from "../store/useThemeStore";
+// import SidebarSkeleton from "./skeletons/SidebarSkeleton";
+// import {
+//   Search, Camera, EllipsisVertical, MessageSquare, Users,
+//   Phone, Settings, LogOut, User, Sun, Moon, ArrowLeft, Palette,
+// } from "lucide-react";
+// import { useNavigate } from "react-router-dom";
+
+// const Sidebar = ({ onSelectUser }) => {
+//   const { getUsers, users, selectedUser, setSelectedUser, isUsersLoading } = useChatStore();
+//   const { onlineUsers, authUser, logout } = useAuthStore();
+//   const { theme, setTheme } = useThemeStore();
+//   const navigate = useNavigate();
+
+//   const [searchQuery, setSearchQuery] = useState("");
+//   const [activeTab, setActiveTab] = useState("chats");
+//   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+
+//   useEffect(() => {
+//     const check = () => setIsMobile(window.innerWidth <= 768);
+//     window.addEventListener("resize", check);
+//     return () => window.removeEventListener("resize", check);
+//   }, []);
+
+//   useEffect(() => { getUsers(); }, [getUsers]);
+
+//   const filteredUsers = users.filter((u) =>
+//     u.fullName?.toLowerCase().includes(searchQuery.toLowerCase())
+//   );
+
+//   if (isUsersLoading) return <SidebarSkeleton />;
+
+//   /* ==================== MOBILE ==================== */
+//   if (isMobile) {
+//     return (
+//       <div className="h-full w-full flex flex-col bg-[#111b21] text-white overflow-hidden">
+
+//         {/* TOP HEADER */}
+//         <div className="flex items-center justify-between px-4 pt-12 pb-3 flex-shrink-0">
+//           <h1 className="text-2xl font-bold">
+//             {activeTab === "chats" && "Chatty"}
+//             {activeTab === "settings" && "Settings"}
+//             {activeTab === "calls" && "Calls"}
+//             {activeTab === "communities" && "Communities"}
+//           </h1>
+//           {activeTab === "chats" && (
+//             <div className="flex items-center gap-1">
+//               <button className="p-2 rounded-full">
+//                 <Camera className="w-5 h-5 text-white/80" />
+//               </button>
+//               <button className="p-2 rounded-full hover:bg-white/10 transition-colors">
+//                 <EllipsisVertical className="w-5 h-5 text-white/80" />
+//               </button>
+//             </div>
+//           )}
+//         </div>
+
+//         {/* CONTENT */}
+//         <div className="flex-1 overflow-y-auto min-h-0">
+
+//           {/* ===== CHATS TAB ===== */}
+//           {activeTab === "chats" && (
+//             <>
+//               <div className="px-3 pb-2">
+//                 <div className="flex items-center gap-3 bg-[#202c33] rounded-xl px-4 py-2.5">
+//                   <Search className="w-4 h-4 text-[#8696a0] flex-shrink-0" />
+//                   <input
+//                     type="text"
+//                     placeholder="Ask Meta AI or Search"
+//                     value={searchQuery}
+//                     onChange={(e) => setSearchQuery(e.target.value)}
+//                     className="bg-transparent outline-none text-sm flex-1 text-white placeholder:text-[#8696a0]"
+//                   />
+//                 </div>
+//               </div>
+
+//               {filteredUsers.map((user) => {
+//                 const isOnline = onlineUsers.includes(user._id);
+//                 const isSelected = selectedUser?._id === user._id;
+//                 return (
+//                   <button
+//                     key={user._id}
+//                     onClick={() => { setSelectedUser(user); onSelectUser?.(); }}
+//                     className={`w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left
+//                       ${isSelected ? "bg-[#2a3942]" : "hover:bg-[#202c33]"}`}
+//                   >
+//                     <div className="relative flex-shrink-0">
+//                       <img src={user.profilePic || "/avatar.png"} alt={user.fullName}
+//                         className="w-12 h-12 rounded-full object-cover" />
+//                       {isOnline && (
+//                         <span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-[#111b21]" />
+//                       )}
+//                     </div>
+//                     <div className="flex-1 min-w-0 border-b border-[#202c33] pb-2.5">
+//                       <div className="flex items-center justify-between gap-2">
+//                         <span className="font-medium text-[15px] truncate">{user.fullName}</span>
+//                         <span className="text-xs text-[#8696a0] flex-shrink-0">Yesterday</span>
+//                       </div>
+//                       <p className="text-sm text-[#8696a0] truncate mt-0.5">
+//                         {isOnline ? "Online" : "Tap to chat"}
+//                       </p>
+//                     </div>
+//                   </button>
+//                 );
+//               })}
+
+//               {filteredUsers.length === 0 && (
+//                 <p className="text-center text-[#8696a0] py-10 text-sm">No contacts found</p>
+//               )}
+//             </>
+//           )}
+
+//           {/* ===== CALLS TAB ===== */}
+//           {activeTab === "calls" && (
+//             <div className="flex flex-col items-center justify-center h-48 gap-3 text-[#8696a0]">
+//               <Phone className="w-12 h-12 opacity-20" />
+//               <p className="text-sm">No recent calls</p>
+//             </div>
+//           )}
+
+//           {/* ===== COMMUNITIES TAB ===== */}
+//           {activeTab === "communities" && (
+//             <div className="flex flex-col items-center justify-center h-48 gap-3 text-[#8696a0]">
+//               <Users className="w-12 h-12 opacity-20" />
+//               <p className="text-sm">No communities yet</p>
+//             </div>
+//           )}
+
+//           {/* ===== SETTINGS TAB ===== */}
+//           {activeTab === "settings" && (
+//             <div className="flex flex-col">
+
+//               {/* Profile card — tap karo profile edit ke liye */}
+//               <button
+//                 onClick={() => navigate("/profile")}
+//                 className="flex items-center gap-4 px-5 py-4 hover:bg-[#202c33] transition-colors border-b border-[#202c33] text-left w-full"
+//               >
+//                 <img src={authUser?.profilePic || "/avatar.png"} alt=""
+//                   className="w-16 h-16 rounded-full object-cover flex-shrink-0" />
+//                 <div className="flex-1 min-w-0">
+//                   <p className="font-semibold text-white text-base">{authUser?.fullName}</p>
+//                   <p className="text-sm text-[#8696a0] truncate">{authUser?.email}</p>
+//                   <p className="text-xs text-emerald-400 mt-0.5">Edit profile →</p>
+//                 </div>
+//               </button>
+
+//               {/* Theme toggle */}
+//               <button
+//                 onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+//                 className="w-full flex items-center gap-4 px-5 py-4 hover:bg-[#202c33] transition-colors"
+//               >
+//                 <div className="w-10 h-10 rounded-full bg-yellow-500/20 flex items-center justify-center flex-shrink-0">
+//                   {theme === "dark"
+//                     ? <Sun className="w-5 h-5 text-yellow-400" />
+//                     : <Moon className="w-5 h-5 text-yellow-400" />}
+//                 </div>
+//                 <div className="flex-1 text-left">
+//                   <p className="text-white text-sm font-medium">
+//                     {theme === "dark" ? "Switch to Light" : "Switch to Dark"}
+//                   </p>
+//                   <p className="text-[#8696a0] text-xs">Current: {theme} theme</p>
+//                 </div>
+//                 {/* Toggle switch */}
+//                 <div className={`w-12 h-6 rounded-full transition-colors flex-shrink-0 ${theme === "dark" ? "bg-emerald-500" : "bg-[#3a3a3a]"}`}>
+//                   <div className={`w-5 h-5 bg-white rounded-full mt-0.5 transition-transform shadow-sm ${theme === "dark" ? "translate-x-6" : "translate-x-0.5"}`} />
+//                 </div>
+//               </button>
+
+//               {/* App theme/settings page */}
+//               <button
+//                 onClick={() => navigate("/settings")}
+//                 className="w-full flex items-center gap-4 px-5 py-4 hover:bg-[#202c33] transition-colors"
+//               >
+//                 <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0">
+//                   <Palette className="w-5 h-5 text-blue-400" />
+//                 </div>
+//                 <div className="text-left">
+//                   <p className="text-white text-sm font-medium">App Theme</p>
+//                   <p className="text-[#8696a0] text-xs">Change color themes</p>
+//                 </div>
+//               </button>
+
+//               {/* Logout */}
+//               <button
+//                 onClick={logout}
+//                 className="w-full flex items-center gap-4 px-5 py-4 hover:bg-red-500/10 transition-colors mt-6 border-t border-[#202c33]"
+//               >
+//                 <div className="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0">
+//                   <LogOut className="w-5 h-5 text-red-400" />
+//                 </div>
+//                 <p className="text-red-400 text-sm font-medium">Log Out</p>
+//               </button>
+//             </div>
+//           )}
+//         </div>
+
+//         {/* FAB */}
+//         {activeTab === "chats" && (
+//           <div className="absolute bottom-20 right-4 z-10">
+//             <button className="w-14 h-14 rounded-full bg-emerald-500 hover:bg-emerald-600 flex items-center justify-center shadow-xl transition-colors">
+//               <MessageSquare className="w-6 h-6 text-white" />
+//             </button>
+//           </div>
+//         )}
+
+//         {/* BOTTOM TAB BAR */}
+//         <div className="flex-shrink-0 bg-[#1f2c34] border-t border-[#2a3942] flex items-center justify-around px-2 py-2">
+//           {[
+//             { id: "chats", icon: MessageSquare, label: "Chats" },
+//             { id: "calls", icon: Phone, label: "Calls" },
+//             { id: "communities", icon: Users, label: "Communities" },
+//             { id: "settings", icon: Settings, label: "Settings" },
+//           ].map(({ id, icon: Icon, label }) => (
+//             <button
+//               key={id}
+//               onClick={() => setActiveTab(id)}
+//               className={`flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-xl transition-colors ${
+//                 activeTab === id ? "text-emerald-400" : "text-[#8696a0]"
+//               }`}
+//             >
+//               <Icon className="w-5 h-5" />
+//               <span className="text-[10px] font-medium">{label}</span>
+//               {activeTab === id && <span className="w-1 h-1 rounded-full bg-emerald-400" />}
+//             </button>
+//           ))}
+//         </div>
+//       </div>
+//     );
+//   }
+
+//   /* ==================== DESKTOP ==================== */
+//   return (
+//     <aside className="h-full w-full flex flex-col bg-base-100 overflow-hidden">
+//       <div className="border-b border-base-300 px-4 py-3 flex-shrink-0">
+//         <div className="flex items-center justify-between mb-2">
+//           <span className="font-semibold text-base">Chats</span>
+//           {onlineUsers.filter((id) => id !== authUser?._id).length > 0 && (
+//             <span className="flex items-center gap-1 text-xs bg-emerald-500/10 text-emerald-600 px-2 py-0.5 rounded-full font-medium">
+//               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+//               {onlineUsers.filter((id) => id !== authUser?._id).length} online
+//             </span>
+//           )}
+//         </div>
+//         <div className="flex items-center gap-2 bg-base-200 rounded-full px-3 py-1.5">
+//           <Search className="w-4 h-4 text-base-content/40 flex-shrink-0" />
+//           <input
+//             type="text"
+//             placeholder="Search contacts..."
+//             value={searchQuery}
+//             onChange={(e) => setSearchQuery(e.target.value)}
+//             className="bg-transparent outline-none text-sm flex-1 placeholder:text-base-content/30"
+//           />
+//         </div>
+//       </div>
+
+//       <div className="overflow-y-auto w-full flex-1">
+//         {filteredUsers.map((user) => {
+//           const isOnline = onlineUsers.includes(user._id);
+//           const isSelected = selectedUser?._id === user._id;
+//           return (
+//             <button
+//               key={user._id}
+//               onClick={() => setSelectedUser(user)}
+//               className={`w-full flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-base-200
+//              ${isSelected ? "bg-base-200 border-l-4 border-emerald-500" : "border-l-4 border-transparent"}`}
+//             >
+//               <div className="relative flex-shrink-0">
+//                 <img src={user.profilePic || "/avatar.png"} alt={user.fullName}
+//                   className="w-11 h-11 rounded-full object-cover" />
+//                 {isOnline && (
+//                   <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-base-100" />
+//                 )}
+//               </div>
+//               <div className="flex-1 min-w-0 text-left">
+//                 <span className="font-medium text-sm truncate block">{user.fullName}</span>
+//                 <span className={`text-xs ${isOnline ? "text-emerald-500" : "text-base-content/40"}`}>
+//                   {isOnline ? "Online" : "Offline"}
+//                 </span>
+//               </div>
+//             </button>
+//           );
+//         })}
+
+//         {filteredUsers.length === 0 && (
+//           <div className="flex flex-col items-center justify-center py-12 gap-2">
+//             <Users className="w-8 h-8 text-base-content/20" />
+//             <p className="text-sm text-base-content/40">No contacts found</p>
+//           </div>
+//         )}
+//       </div>
+//     </aside>
+//   );
+// };
+
+// export default Sidebar;
+
+
 
 // import { useEffect, useState } from "react";
 // import { useChatStore } from "../store/useChatStore";
