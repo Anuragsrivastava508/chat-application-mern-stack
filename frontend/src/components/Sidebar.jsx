@@ -41,14 +41,14 @@ const Sidebar = ({ onSelectUser }) => {
         {/* TOP HEADER */}
         <div className="flex items-center justify-between px-4 pt-12 pb-3 flex-shrink-0">
           <h1 className="text-2xl font-bold">
-            {activeTab === "chats" && "WhatsApp"}
+            {activeTab === "chats" && "Chatty"}
             {activeTab === "settings" && "Settings"}
             {activeTab === "calls" && "Calls"}
             {activeTab === "communities" && "Communities"}
           </h1>
           {activeTab === "chats" && (
             <div className="flex items-center gap-1">
-              <button className="p-2 rounded-full hover:bg-white/10 transition-colors">
+              <button className="p-2 rounded-full">
                 <Camera className="w-5 h-5 text-white/80" />
               </button>
               <button className="p-2 rounded-full hover:bg-white/10 transition-colors">
@@ -265,7 +265,7 @@ const Sidebar = ({ onSelectUser }) => {
               key={user._id}
               onClick={() => setSelectedUser(user)}
               className={`w-full flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-base-200
-                ${isSelected ? "bg-base-200 border-l-4 border-emerald-500" : "border-l-4 border-transparent"}`}
+             ${isSelected ? "bg-base-200 border-l-4 border-emerald-500" : "border-l-4 border-transparent"}`}
             >
               <div className="relative flex-shrink-0">
                 <img src={user.profilePic || "/avatar.png"} alt={user.fullName}
