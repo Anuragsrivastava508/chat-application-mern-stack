@@ -1,6 +1,4 @@
-
 import axios from "axios";
-
 const API_URL =
   import.meta.env.MODE === "production"
     ? "https://chatify-n6jt.onrender.com/api"   // 🔥 Backend URL in production
