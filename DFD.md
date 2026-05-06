@@ -73,6 +73,10 @@ Message Proc <--> Message DB
 User Management <--> User DB
 ```
 
+
+
+
+
 ## Trust Boundaries
 - Frontend (Client-side)
 - Backend API
