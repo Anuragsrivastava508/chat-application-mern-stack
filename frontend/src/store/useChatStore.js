@@ -414,5 +414,3 @@ export const useChatStore = create((set, get) => ({
   setSelectedUser: (u) => set({ selectedUser: u, messages: [] }),
 }));
 
-
-
