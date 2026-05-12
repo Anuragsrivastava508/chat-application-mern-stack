@@ -59,6 +59,7 @@ function getLocalVideoConstraints() {
       : { width: { ideal: 1280 }, height: { ideal: 720 } }),
   };
 }
+// getCallMediaStream
 
 async function getCallMediaStream(callType) {
   try {
@@ -74,6 +75,7 @@ async function getCallMediaStream(callType) {
     });
   }
 }
+
 
 export const useChatStore = create((set, get) => ({
   users: [],
