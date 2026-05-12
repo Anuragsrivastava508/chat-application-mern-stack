@@ -40,14 +40,14 @@ function mergeRemoteTrack(get, set, e) {
   console.log("[ontrack] setting remoteStream tracks:", tracks.map((t) => t.kind));
   set({ remoteStream: newStream });
 }
-
+// normalizeIceCandidate
 function normalizeIceCandidate(candidate) {
   if (!candidate) return null;
   return candidate instanceof RTCIceCandidate
     ? candidate
     : new RTCIceCandidate(candidate);
 }
-// 
+// getLocalVideoConstraints
 function getLocalVideoConstraints() {
   const portrait =
     typeof window !== "undefined" &&
