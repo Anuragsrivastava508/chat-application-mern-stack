@@ -47,7 +47,7 @@ function normalizeIceCandidate(candidate) {
     ? candidate
     : new RTCIceCandidate(candidate);
 }
-
+// 
 function getLocalVideoConstraints() {
   const portrait =
     typeof window !== "undefined" &&
