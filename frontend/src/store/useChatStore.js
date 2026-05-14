@@ -24,7 +24,7 @@ function createPeerConnection() {
     iceCandidatePoolSize: 10,
   });
 }
-
+// mergeRemoteTrack
 function mergeRemoteTrack(get, set, e) {
   console.log("[ontrack] fired", e.track?.kind, "streams:", e.streams?.length);
   let tracks = [];
