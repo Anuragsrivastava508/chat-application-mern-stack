@@ -79,7 +79,9 @@ export const useAuthStore = create((set, get) => ({
       toast.error("Logout failed");
     }
   },
+  
   /* ================= updateProfile ================= */
+  
   updateProfile: async (data) => {
     set({ isUpdatingProfile: true });
     try {
