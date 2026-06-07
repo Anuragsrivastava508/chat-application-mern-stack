@@ -24,6 +24,7 @@ function createPeerConnection() {
     iceCandidatePoolSize: 10,
   });
 }
+
 // mergeRemoteTrack
 function mergeRemoteTrack(get, set, e) {
   console.log("[ontrack] fired", e.track?.kind, "streams:", e.streams?.length);
@@ -40,6 +41,7 @@ function mergeRemoteTrack(get, set, e) {
   console.log("[ontrack] setting remoteStream tracks:", tracks.map((t) => t.kind));
   set({ remoteStream: newStream });
 }
+
 // normalizeIceCandidate
 function normalizeIceCandidate(candidate) {
   if (!candidate) return null;
@@ -47,6 +49,7 @@ function normalizeIceCandidate(candidate) {
     ? candidate
     : new RTCIceCandidate(candidate);
 }
+
 // getLocalVideoConstraints
 function getLocalVideoConstraints() {
   const portrait =
