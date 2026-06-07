@@ -43,14 +43,24 @@ export const getMessages = async (req, res) => {
 /* ================= SEND MESSAGE ================= */
 export const sendMessage = async (req, res) => {
   try {
-    const { text, image } = req.body;
+    const { text, image, document } = req.body;
     const { id: receiverId } = req.params;
     const senderId = req.user._id;
 
     let imageUrl;
     if (image) {
-      const uploadResponse = await cloudinary.uploader.upload(image);
-      imageUrl = uploadResponse.secure_url;
+      try {
+        const uploadResponse = await cloudinary.uploader.upload(image);
+        imageUrl = uploadResponse.secure_url;
+      } catch (uploadError) {
+        console.error("Cloudinary upload error:", uploadError);
+        return res.status(400).json({ error: "Failed to upload image" });
+      }
+    }
+
+    // Validate document base64 size (limit to 10MB for safety)
+    if (document && document.base64 && document.base64.length > 10 * 1024 * 1024) {
+      return res.status(400).json({ error: "Document size too large (max 10MB)" });
     }
 
     const newMessage = new Message({
@@ -58,6 +68,7 @@ export const sendMessage = async (req, res) => {
       receiverId,
       text,
       image: imageUrl,
+      document: document ? { base64: document.base64, name: document.name, type: document.type } : undefined,
     });
 
     const savedMessage = await newMessage.save();

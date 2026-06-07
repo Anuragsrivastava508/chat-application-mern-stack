@@ -1,6 +1,7 @@
 import { Server } from "socket.io";
 import http from "http";
 import express from "express";
+import User from "../models/user.model.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -98,6 +99,36 @@ io.on("connection", (socket) => {
     sockets.forEach((id) => {
       io.to(id).emit("webrtc-ice", { from: userId, candidate });
     });
+  });
+
+  /* ===== TYPING INDICATORS ===== */
+
+  socket.on("typing", async ({ to }) => {
+    try {
+      const typingUser = await User.findById(userId).select("fullName").lean();
+      const sockets = userSocketMap[to];
+      if (!sockets) return;
+      
+      const userName = typingUser?.fullName || "User";
+      sockets.forEach((id) => {
+        io.to(id).emit("user-typing", { from: userId, name: userName });
+      });
+    } catch (e) {
+      console.error("Error in typing event:", e);
+      // Continue silently - don't break the socket connection
+    }
+  });
+
+  socket.on("stop-typing", ({ to }) => {
+    try {
+      const sockets = userSocketMap[to];
+      if (!sockets) return;
+      sockets.forEach((id) => {
+        io.to(id).emit("user-stop-typing");
+      });
+    } catch (e) {
+      console.error("Error in stop-typing event:", e);
+    }
   });
 });
 

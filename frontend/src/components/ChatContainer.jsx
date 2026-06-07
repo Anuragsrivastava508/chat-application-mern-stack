@@ -3,19 +3,22 @@
 import { useChatStore } from "../store/useChatStore";
 import { useAuthStore } from "../store/useAuthStore";
 import { useEffect, useRef, useState } from "react";
-import { Mic, MicOff, RotateCw, Video, VideoOff, Phone, PhoneOff } from "lucide-react";
+import { Mic, MicOff, RotateCw, Video, VideoOff, Phone, PhoneOff, FileText } from "lucide-react";
 import ChatHeader from "./ChatHeader";
 import MessageInput from "./MessageInput";
 import MessageSkeleton from "./skeletons/MessageSkeleton";
+import TypingIndicator from "./TypingIndicator";
 import { formatMessageTime } from "../lib/utils";
 
 const ChatContainer = ({ onBack }) => {
   const {
     messages, getMessages, isMessagesLoading, selectedUser,
     subscribeToMessages, unsubscribeFromMessages,
+    subscribeToTyping, unsubscribeFromTyping,
     isCalling, outgoingCall, endCall,
     localStream, remoteStream,
     toggleMic, toggleCamera, isMicOn, isCameraOn,
+    typingUser,
   } = useChatStore();
 
   const { authUser } = useAuthStore();
@@ -30,12 +33,16 @@ const ChatContainer = ({ onBack }) => {
     if (!selectedUser?._id) return;
     getMessages(selectedUser._id);
     subscribeToMessages();
-    return () => unsubscribeFromMessages();
-  }, [selectedUser?._id]);
+    subscribeToTyping();
+    return () => {
+      unsubscribeFromMessages();
+      unsubscribeFromTyping();
+    };
+  }, [selectedUser?._id, subscribeToMessages, unsubscribeFromMessages, subscribeToTyping, unsubscribeFromTyping]);
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, typingUser]);
 
   // Call duration timer
   useEffect(() => {
@@ -286,6 +293,20 @@ const ChatContainer = ({ onBack }) => {
                   </div>
                 )}
 
+                {/* Document */}
+                {msg.document && (
+                  <div className={`mb-1 px-3 py-2 rounded-2xl shadow-sm flex items-center gap-2 ${isMine ? "bg-emerald-500 rounded-br-sm" : "bg-base-100 rounded-bl-sm"}`}>
+                    <FileText className={`${isMine ? "text-white" : "text-emerald-500"} w-5 h-5 flex-shrink-0`} />
+                    <a
+                      href={msg.document.base64}
+                      download={msg.document.name}
+                      className={`text-sm font-medium truncate max-w-[150px] ${isMine ? "text-white underline" : "text-base-content underline"}`}
+                    >
+                      {msg.document.name}
+                    </a>
+                  </div>
+                )}
+
                 {/* Text bubble */}
                 {msg.text && (
                   <div
@@ -303,8 +324,8 @@ const ChatContainer = ({ onBack }) => {
                   </div>
                 )}
 
-                {/* Timestamp below image (if no text) */}
-                {msg.image && !msg.text && (
+                {/* Timestamp below image or document (if no text) */}
+                {(msg.image || msg.document) && !msg.text && (
                   <span className={`text-[10px] mt-0.5 ${isMine ? "text-base-content/40 text-right" : "text-base-content/40"}`}>
                     {formatMessageTime(msg.createdAt)}
                   </span>
@@ -313,6 +334,19 @@ const ChatContainer = ({ onBack }) => {
             </div>
           );
         })}
+
+        {typingUser && (
+          <div className="flex items-end gap-2 py-2">
+            <div className="w-7 h-7 flex-shrink-0 self-end mb-1">
+              <img
+                src={selectedUser?.profilePic || "/avatar.png"}
+                className="w-7 h-7 rounded-full object-cover"
+                alt=""
+              />
+            </div>
+            <TypingIndicator userName={typingUser.name} />
+          </div>
+        )}
 
         <div ref={messageEndRef} />
       </div>

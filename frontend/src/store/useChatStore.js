@@ -101,6 +101,9 @@ export const useChatStore = create((set, get) => ({
   isMicOn: true,
   isCameraOn: true,
 
+  // Typing indicators
+  typingUser: null, // { userId, name } of the user who is typing
+
   getUsers: async () => {
     set({ isUsersLoading: true });
     try {
@@ -139,6 +142,41 @@ export const useChatStore = create((set, get) => ({
 
   unsubscribeFromMessages: () => {
     useAuthStore.getState().socket?.off("newMessage");
+  },
+
+  subscribeToTyping: () => {
+    const socket = useAuthStore.getState().socket;
+    if (!socket) return;
+
+    socket.off("user-typing");
+    socket.off("user-stop-typing");
+
+    socket.on("user-typing", ({ from, name }) => {
+      set({ typingUser: { userId: from, name } });
+    });
+
+    socket.on("user-stop-typing", () => {
+      set({ typingUser: null });
+    });
+  },
+
+  unsubscribeFromTyping: () => {
+    const socket = useAuthStore.getState().socket;
+    if (!socket) return;
+    socket.off("user-typing");
+    socket.off("user-stop-typing");
+  },
+
+  emitTyping: (isTyping) => {
+    const socket = useAuthStore.getState().socket;
+    const { selectedUser } = get();
+    if (!socket || !selectedUser) return;
+
+    if (isTyping) {
+      socket.emit("typing", { to: selectedUser._id });
+    } else {
+      socket.emit("stop-typing", { to: selectedUser._id });
+    }
   },
 
   subscribeToCalls: () => {
@@ -416,6 +454,6 @@ export const useChatStore = create((set, get) => ({
     set({ isCameraOn: !isCameraOn });
   },
 
-  setSelectedUser: (u) => set({ selectedUser: u, messages: [] }),
+  setSelectedUser: (u) => set({ selectedUser: u, messages: [], typingUser: null }),
 }));
 

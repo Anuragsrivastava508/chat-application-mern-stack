@@ -17,8 +17,9 @@ const MessageInput = () => {
   const docInputRef = useRef(null);
   const cameraVideoRef = useRef(null);
   const canvasRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
 
-  const { sendMessage } = useChatStore();
+  const { sendMessage, emitTyping } = useChatStore();
 
   // Close attach menu on outside click
   useEffect(() => {
@@ -39,6 +40,36 @@ const MessageInput = () => {
   useEffect(() => {
     return () => { cameraStream?.getTracks().forEach((t) => t.stop()); };
   }, [cameraStream]);
+
+  // Handle typing indicators
+  useEffect(() => {
+    if (text.trim()) {
+      // User is typing
+      emitTyping(true);
+      
+      // Clear existing timeout
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+      
+      // Set new timeout to emit stop-typing after 3 seconds of inactivity
+      typingTimeoutRef.current = setTimeout(() => {
+        emitTyping(false);
+      }, 3000);
+    } else {
+      // User cleared the input
+      emitTyping(false);
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+    }
+
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+    };
+  }, [text, emitTyping]);
 
   /* ---- IMAGE from gallery ---- */
   const handleImageChange = (e) => {
@@ -142,6 +173,7 @@ const MessageInput = () => {
         document: docPreview ? { base64: docPreview.base64, name: docPreview.name, type: docPreview.type } : undefined,
       });
     } catch {
+      emitTyping(false);
       toast.error("Failed to send");
       return;
     }

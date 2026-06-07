@@ -121,6 +121,7 @@ const chatStore = useChatStore.getState();
 
       chatStore.subscribeToMessages();
       chatStore.subscribeToCalls();
+      chatStore.subscribeToTyping();
     });
 
     newSocket.on("getOnlineUsers", (users) => {
@@ -138,7 +139,9 @@ const chatStore = useChatStore.getState();
 
   disconnectSocket: () => {
     const { socket } = get();
+    const chatStore = useChatStore.getState();
     if (socket?.connected) socket.disconnect();
+    chatStore.unsubscribeFromTyping();
     set({ socket: null, onlineUsers: [] });
   },
 }));
