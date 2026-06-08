@@ -103,6 +103,7 @@ export const useChatStore = create((set, get) => ({
 
   // Typing indicators
   typingUser: null, // { userId, name } of the user who is typing
+  isTypingToRecipient: false,
 
   getUsers: async () => {
     set({ isUsersLoading: true });
@@ -152,10 +153,14 @@ export const useChatStore = create((set, get) => ({
     socket.off("user-stop-typing");
 
     socket.on("user-typing", ({ from, name }) => {
+      const { selectedUser } = get();
+      if (!selectedUser || selectedUser._id !== from) return;
       set({ typingUser: { userId: from, name } });
     });
 
-    socket.on("user-stop-typing", () => {
+    socket.on("user-stop-typing", ({ from }) => {
+      const { selectedUser } = get();
+      if (!selectedUser || selectedUser._id !== from) return;
       set({ typingUser: null });
     });
   },
@@ -165,13 +170,16 @@ export const useChatStore = create((set, get) => ({
     if (!socket) return;
     socket.off("user-typing");
     socket.off("user-stop-typing");
+    set({ typingUser: null });
   },
 
   emitTyping: (isTyping) => {
     const socket = useAuthStore.getState().socket;
-    const { selectedUser } = get();
+    const { selectedUser, isTypingToRecipient } = get();
     if (!socket || !selectedUser) return;
+    if (isTyping === isTypingToRecipient) return;
 
+    set({ isTypingToRecipient: isTyping });
     if (isTyping) {
       socket.emit("typing", { to: selectedUser._id });
     } else {

@@ -124,7 +124,7 @@ io.on("connection", (socket) => {
       const sockets = userSocketMap[to];
       if (!sockets) return;
       sockets.forEach((id) => {
-        io.to(id).emit("user-stop-typing");
+        io.to(id).emit("user-stop-typing", { from: userId });
       });
     } catch (e) {
       console.error("Error in stop-typing event:", e);

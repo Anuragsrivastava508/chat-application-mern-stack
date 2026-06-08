@@ -68,6 +68,7 @@ const MessageInput = () => {
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
       }
+      emitTyping(false);
     };
   }, [text, emitTyping]);
 
