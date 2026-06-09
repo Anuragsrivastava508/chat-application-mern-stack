@@ -450,6 +450,7 @@ export const useChatStore = create((set, get) => ({
     });
   },
 
+  //  toggleMic
   toggleMic: () => {
     const { localStream, isMicOn } = get();
     localStream?.getAudioTracks().forEach((t) => { t.enabled = !isMicOn; });
