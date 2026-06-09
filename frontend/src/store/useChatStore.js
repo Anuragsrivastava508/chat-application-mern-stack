@@ -455,6 +455,7 @@ export const useChatStore = create((set, get) => ({
     localStream?.getAudioTracks().forEach((t) => { t.enabled = !isMicOn; });
     set({ isMicOn: !isMicOn });
   },
+// toggleCamera
 
   toggleCamera: () => {
     const { localStream, isCameraOn } = get();
