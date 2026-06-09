@@ -123,12 +123,14 @@ export const useChatStore = create((set, get) => ({
     finally { set({ isMessagesLoading: false }); }
   },
 
+  // sendMessage
   sendMessage: async (data) => {
     const { selectedUser } = get();
     if (!selectedUser) return;
     await axiosInstance.post(`/messages/send/${selectedUser._id}`, data);
   },
 
+// subscribeToMessages
   subscribeToMessages: () => {
     const socket = useAuthStore.getState().socket;
     if (!socket) return;
@@ -141,10 +143,12 @@ export const useChatStore = create((set, get) => ({
     });
   },
 
+  //  unsubscribeFromMessages
   unsubscribeFromMessages: () => {
     useAuthStore.getState().socket?.off("newMessage");
   },
 
+  //subscribeToTyping
   subscribeToTyping: () => {
     const socket = useAuthStore.getState().socket;
     if (!socket) return;
@@ -165,6 +169,7 @@ export const useChatStore = create((set, get) => ({
     });
   },
 
+//unsubscribeFromTyping
   unsubscribeFromTyping: () => {
     const socket = useAuthStore.getState().socket;
     if (!socket) return;
@@ -173,6 +178,7 @@ export const useChatStore = create((set, get) => ({
     set({ typingUser: null });
   },
 
+//emitTyping
   emitTyping: (isTyping) => {
     const socket = useAuthStore.getState().socket;
     const { selectedUser, isTypingToRecipient } = get();
