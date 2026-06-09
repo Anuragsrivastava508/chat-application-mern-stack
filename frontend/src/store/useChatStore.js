@@ -187,6 +187,7 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
+  // subscribeToCalls
   subscribeToCalls: () => {
     const socket = useAuthStore.getState().socket;
     if (!socket) return;
@@ -307,6 +308,7 @@ export const useChatStore = create((set, get) => ({
     });
   },
 
+  //  startCall
   startCall: async (callType = "video") => {
     const socket = useAuthStore.getState().socket;
     const { selectedUser } = get();
@@ -365,6 +367,7 @@ export const useChatStore = create((set, get) => ({
     });
   },
 
+  //  acceptCall
   acceptCall: async () => {
     const socket = useAuthStore.getState().socket;
     const { pendingOffer, incomingCall, pc: existingPc } = get();
@@ -419,6 +422,7 @@ export const useChatStore = create((set, get) => ({
     });
   },
 
+  // rejectCall
   rejectCall: () => {
     const socket = useAuthStore.getState().socket;
     const { incomingCall, pendingOffer, pc, localStream } = get();
